@@ -7,9 +7,21 @@ export default defineManifest({
   version: pkg.version,
   description: pkg.description,
   minimum_chrome_version: "116",
+  icons: {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png",
+  },
   action: {
     default_popup: "src/popup/popup.html",
     default_title: "local-eth-limo",
+    default_icon: {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png",
+    },
   },
   options_page: "src/options/options.html",
   background: {
