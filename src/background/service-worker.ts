@@ -5,7 +5,11 @@ import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
 import type { TabContext } from "@/lib/messaging";
 
-const ETH_HOST_RE = /^[a-z0-9-]+\.eth\.?$/i;
+const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
+
+// Dynamic DNR rule ID for the .eth → interstitial redirect. Must not collide
+// with the static rules in public/rules/no_https_upgrade.json (which use 1, 2).
+const ETH_REDIRECT_RULE_ID = 1001;
 
 function errorPageUrl(name: string, error: string): string {
   const u = new URL(chrome.runtime.getURL("src/error/error.html"));
@@ -14,13 +18,38 @@ function errorPageUrl(name: string, error: string): string {
   return u.toString();
 }
 
-function interstitialUrl(name: string, path: string, search: string, hash: string): string {
-  const u = new URL(chrome.runtime.getURL("src/interstitial/interstitial.html"));
-  u.searchParams.set("name", name);
-  u.searchParams.set("path", path);
-  u.searchParams.set("search", search);
-  u.searchParams.set("hash", hash);
-  return u.toString();
+async function installEthRedirectRule() {
+  // The interstitial is a web-accessible resource, so DNR can redirect to it.
+  // We use regexSubstitution to stash the *entire* original URL into the
+  // fragment of the redirect target. Fragments tolerate arbitrary chars
+  // (including further `#` and `?`), so the interstitial can recover the
+  // original URL verbatim via `location.hash.slice(1)` — no encoding needed.
+  //
+  // NB: DNR redirects require host permission for the *target URL of the
+  // request*. That's why manifest.config.ts lists `*://*.eth/*` under
+  // host_permissions. Without it this rule silently no-ops and Chrome's DNS
+  // probe wins the race.
+  const interstitial = chrome.runtime.getURL("src/interstitial/interstitial.html");
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: [ETH_REDIRECT_RULE_ID],
+    addRules: [
+      {
+        id: ETH_REDIRECT_RULE_ID,
+        priority: 2,
+        action: {
+          type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+          redirect: { regexSubstitution: `${interstitial}#\\0` },
+        },
+        condition: {
+          // Any *.eth host (first-level or subdomain), any scheme/port, any path/query/fragment.
+          regexFilter: "^https?://(?:[a-z0-9-]+\\.)+eth(?::\\d+)?(?:/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+        },
+      },
+    ],
+  });
 }
 
 async function resolveAndRedirect(
@@ -50,7 +79,18 @@ async function resolveAndRedirect(
   await chrome.tabs.update(tabId, { url: target });
 }
 
-chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+// Ensure the DNR rule is registered on every SW wake-up. Dynamic rules persist
+// across restarts, but this keeps the rule in sync if the extension URL has
+// changed (e.g. reload during unpacked dev) and is a cheap no-op otherwise.
+installEthRedirectRule().then(
+  () => console.log("[local-eth-limo] .eth DNR redirect rule installed"),
+  (e) => console.warn("[local-eth-limo] failed to install .eth DNR rule", e),
+);
+
+// DNR handles the *.eth → interstitial redirect synchronously at the network
+// layer, beating Chrome's DNS-failure page. This listener just pre-boots
+// Helios so it has a head start by the time the interstitial polls it.
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId !== 0) return;
   let url: URL;
   try {
@@ -59,55 +99,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     return;
   }
   if (!ETH_HOST_RE.test(url.hostname)) return;
-
-  const ensName = url.hostname.replace(/\.$/, "").toLowerCase();
-  const pathname = url.pathname || "/";
-
-  const { rpcUrls } = await getSettings();
-  if (rpcUrls.length === 0) {
-    await chrome.tabs.update(details.tabId, {
-      url: errorPageUrl(
-        ensName,
-        "No Ethereum RPC configured. Open extension settings and add at least one execution RPC.",
-      ),
-    });
-    return;
-  }
-
-  // Kick off Helios boot (no-op if already booting/synced). Don't block on it
-  // here — if not synced yet, we redirect to the interstitial and let it wait.
-  getOrStartHelios().catch((e) => {
-    console.warn("[local-eth-limo] helios boot background err", e);
-  });
-
-  let status;
-  try {
-    status = await getHeliosStatus();
-  } catch (e) {
-    await chrome.tabs.update(details.tabId, {
-      url: errorPageUrl(
-        ensName,
-        `Could not reach Helios offscreen doc: ${e instanceof Error ? e.message : String(e)}`,
-      ),
-    });
-    return;
-  }
-
-  if (status.state === "synced") {
-    await resolveAndRedirect(
-      details.tabId,
-      ensName,
-      pathname,
-      url.search,
-      url.hash,
-    );
-    return;
-  }
-
-  // Not synced yet — hand off to interstitial.
-  await chrome.tabs.update(details.tabId, {
-    url: interstitialUrl(ensName, pathname, url.search, url.hash),
-  });
+  getOrStartHelios().catch(() => undefined);
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
@@ -168,6 +160,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === "boot-helios") {
+    getOrStartHelios().then(
+      (status) => sendResponse({ ok: true, status }),
+      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
+    );
+    return true;
+  }
+
   if (msg?.type === "open-options") {
     (async () => {
       const s = await getSettings();
@@ -188,6 +188,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log("[local-eth-limo] installed");
+  installEthRedirectRule().catch((e) => {
+    console.warn("[local-eth-limo] failed to install .eth DNR rule", e);
+  });
   getOrStartHelios().catch(() => {
     /* no RPC yet is fine */
   });
@@ -218,6 +221,9 @@ onSettingsChanged((s) => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  installEthRedirectRule().catch((e) => {
+    console.warn("[local-eth-limo] failed to install .eth DNR rule", e);
+  });
   getOrStartHelios().catch(() => {
     /* no RPC yet is fine */
   });

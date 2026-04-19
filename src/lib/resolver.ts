@@ -81,8 +81,8 @@ export async function resolveEns(
   opts: ResolveOptions = {},
 ): Promise<ResolveResponse> {
   const lower = name.toLowerCase();
-  if (!/^[a-z0-9-]+\.eth$/.test(lower)) {
-    return { ok: false, error: `not a first-level .eth name: ${name}` };
+  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(lower)) {
+    return { ok: false, error: `not a .eth name: ${name}` };
   }
 
   const { rpcUrls } = await getSettings();

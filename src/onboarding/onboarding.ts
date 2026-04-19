@@ -179,6 +179,14 @@ advForm.addEventListener("submit", async (e) => {
   }
 
   await setSettings({ consensusRpc, checkpoint });
+  // Tear down any previous boot (possibly mid-sync with a stale consensus RPC
+  // from the implicit boot that ran when rpcUrls was first set) so the next
+  // boot picks up the values we just saved.
+  try {
+    await chrome.runtime.sendMessage({ type: "shutdown-helios" });
+  } catch {
+    /* best-effort */
+  }
   showStep(4);
   void startHelios();
 });
@@ -217,9 +225,13 @@ function renderHelios(status: HeliosStatus | null) {
 }
 
 async function startHelios() {
-  // Poke the SW to boot Helios (by sending any message that triggers ensureHeliosBooted).
-  // We just poll status; the SW already listens on runtime.onStartup / onInstalled.
-  await chrome.runtime.sendMessage({ type: "get-helios-status" });
+  // Explicitly ask the SW to boot Helios. The SW's implicit boot via
+  // onSettingsChanged only fires when rpcUrls[0] actually changes, so on a
+  // page reload, a back→forward through the wizard, or a consensus-RPC-only
+  // edit it would never fire and step 4 would poll "not yet started" forever.
+  chrome.runtime.sendMessage({ type: "boot-helios" }).catch(() => {
+    /* status poll below will surface any error */
+  });
   while (currentStep === 4) {
     try {
       const resp = await chrome.runtime.sendMessage({

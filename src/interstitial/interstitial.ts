@@ -1,10 +1,39 @@
 import type { HeliosStatus } from "@/lib/helios-bridge";
 
-const params = new URLSearchParams(location.search);
-const ensName = params.get("name") ?? "";
-const path = params.get("path") ?? "/";
-const search = params.get("search") ?? "";
-const hash = params.get("hash") ?? "";
+// DNR redirects `http://foo.eth/path?q#h` → `<ext>/interstitial.html#<full-url>`.
+// The original URL is stashed in the fragment verbatim — fragments can contain
+// arbitrary characters, so no encoding is needed. Legacy query-param form
+// (?name=&path=…) is kept as a fallback for manual/programmatic navigations.
+function parseTarget(): {
+  ensName: string;
+  path: string;
+  search: string;
+  hash: string;
+} {
+  const raw = location.hash.startsWith("#") ? location.hash.slice(1) : "";
+  if (raw) {
+    try {
+      const u = new URL(raw);
+      return {
+        ensName: u.hostname.replace(/\.$/, "").toLowerCase(),
+        path: u.pathname || "/",
+        search: u.search,
+        hash: u.hash,
+      };
+    } catch {
+      /* fall through to query-string form */
+    }
+  }
+  const p = new URLSearchParams(location.search);
+  return {
+    ensName: (p.get("name") ?? "").toLowerCase(),
+    path: p.get("path") ?? "/",
+    search: p.get("search") ?? "",
+    hash: p.get("hash") ?? "",
+  };
+}
+
+const { ensName, path, search, hash } = parseTarget();
 
 const titleEl = document.getElementById("title") as HTMLHeadingElement;
 const nameEl = document.getElementById("name") as HTMLParagraphElement;

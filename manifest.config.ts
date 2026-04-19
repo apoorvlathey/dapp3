@@ -47,6 +47,11 @@ export default defineManifest({
     "http://127.0.0.1/*",
     "http://localhost/*",
     "http://*.localhost/*",
+    // Required so the declarativeNetRequest redirect rule can intercept
+    // `*.eth` main_frame requests *before* Chrome's DNS probe shows the
+    // "site can't be reached" page. DNR redirects need host access to the
+    // target URL; without this, the rule silently no-ops.
+    "*://*.eth/*",
   ],
   optional_host_permissions: ["https://*/*", "http://*/*"],
   content_security_policy: {
