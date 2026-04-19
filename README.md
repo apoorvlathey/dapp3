@@ -1,4 +1,4 @@
-# local-eth-limo
+# dapp3
 
 A local-first, trust-minimized browser extension that resolves `*.eth` navigations directly against Ethereum state (via a Helios light client) and serves the contenthash from the user's own Kubo IPFS node.
 

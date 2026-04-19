@@ -2,7 +2,7 @@ import type { TabContext } from "@/lib/messaging";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { setupAddressField, type AddressField } from "@/lib/url-field";
 
-const BANNER_ID = "local-eth-limo-banner";
+const BANNER_ID = "dapp3-banner";
 const HEIGHT_PX = 44;
 const POLL_MS = 2000;
 

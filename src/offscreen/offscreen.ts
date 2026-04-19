@@ -98,7 +98,7 @@ async function boot(config: HeliosBootstrapMsg["config"]): Promise<void> {
     try {
       await provider.shutdown();
     } catch (e) {
-      console.warn("[local-eth-limo] helios shutdown error", e);
+      console.warn("[dapp3] helios shutdown error", e);
     }
     provider = null;
   }
@@ -116,7 +116,7 @@ async function boot(config: HeliosBootstrapMsg["config"]): Promise<void> {
       if (!checkpoint) {
         try {
           checkpoint = await fetchFreshCheckpoint(consensus);
-          console.log("[local-eth-limo] fresh checkpoint:", checkpoint);
+          console.log("[dapp3] fresh checkpoint:", checkpoint);
         } catch (e) {
           throw new Error(
             `Failed to fetch a fresh checkpoint from ${consensus}: ${
@@ -136,7 +136,7 @@ async function boot(config: HeliosBootstrapMsg["config"]): Promise<void> {
       try {
         localStorage.clear();
       } catch (e) {
-        console.warn("[local-eth-limo] localStorage clear failed", e);
+        console.warn("[dapp3] localStorage clear failed", e);
       }
 
       const p = await createHeliosProvider(
@@ -153,12 +153,12 @@ async function boot(config: HeliosBootstrapMsg["config"]): Promise<void> {
       status = { state: "syncing", executionRpc: config.executionRpc };
       await p.waitSynced();
       status = { state: "synced", executionRpc: config.executionRpc };
-      console.log("[local-eth-limo] helios synced");
+      console.log("[dapp3] helios synced");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       status = { state: "error", executionRpc: config.executionRpc, error: msg };
       provider = null;
-      console.error("[local-eth-limo] helios boot failed", e);
+      console.error("[dapp3] helios boot failed", e);
       throw e;
     }
   })();
@@ -181,7 +181,7 @@ async function handleRequest(msg: HeliosRequestMsg): Promise<HeliosResponse> {
     return { ok: true, result };
   } catch (e) {
     console.error(
-      "[local-eth-limo] helios provider.request failed",
+      "[dapp3] helios provider.request failed",
       { method: msg.method, params: msg.params },
       e,
     );
@@ -194,7 +194,7 @@ async function shutdown() {
     try {
       await provider.shutdown();
     } catch (e) {
-      console.warn("[local-eth-limo] shutdown err", e);
+      console.warn("[dapp3] shutdown err", e);
     }
     provider = null;
   }
@@ -234,4 +234,4 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
-console.log("[local-eth-limo] offscreen ready");
+console.log("[dapp3] offscreen ready");

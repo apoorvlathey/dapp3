@@ -36,7 +36,7 @@ function parseTarget(): {
 
 const { ensName, path, search, hash } = parseTarget();
 
-document.title = ensName ? `resolving ${ensName}…` : "local-eth-limo";
+document.title = ensName ? `resolving ${ensName}…` : "dapp3";
 
 const nameEl = document.getElementById("name") as HTMLSpanElement;
 const statusEl = document.getElementById("status") as HTMLParagraphElement;

@@ -1,5 +1,5 @@
 {
-  "name": "local-eth-limo",
+  "name": "dapp3",
   "version": "0.0.1",
   "description": "Local-first ENS gateway browser extension (Helios + Kubo).",
   "private": true,

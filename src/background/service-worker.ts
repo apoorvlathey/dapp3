@@ -83,8 +83,8 @@ async function resolveAndRedirect(
 // across restarts, but this keeps the rule in sync if the extension URL has
 // changed (e.g. reload during unpacked dev) and is a cheap no-op otherwise.
 installEthRedirectRule().then(
-  () => console.log("[local-eth-limo] .eth DNR redirect rule installed"),
-  (e) => console.warn("[local-eth-limo] failed to install .eth DNR rule", e),
+  () => console.log("[dapp3] .eth DNR redirect rule installed"),
+  (e) => console.warn("[dapp3] failed to install .eth DNR rule", e),
 );
 
 // DNR handles the *.eth → interstitial redirect synchronously at the network
@@ -187,9 +187,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log("[local-eth-limo] installed");
+  console.log("[dapp3] installed");
   installEthRedirectRule().catch((e) => {
-    console.warn("[local-eth-limo] failed to install .eth DNR rule", e);
+    console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
   getOrStartHelios().catch(() => {
     /* no RPC yet is fine */
@@ -222,7 +222,7 @@ onSettingsChanged((s) => {
 
 chrome.runtime.onStartup.addListener(() => {
   installEthRedirectRule().catch((e) => {
-    console.warn("[local-eth-limo] failed to install .eth DNR rule", e);
+    console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
   getOrStartHelios().catch(() => {
     /* no RPC yet is fine */

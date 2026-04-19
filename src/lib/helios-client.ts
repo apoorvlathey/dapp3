@@ -130,7 +130,7 @@ export function heliosEip1193Provider() {
         // is disallowed in SW, masking the original reason. Log the raw Helios
         // error so we can actually see it.
         console.error(
-          "[local-eth-limo] helios request failed",
+          "[dapp3] helios request failed",
           { method, params },
           e,
         );

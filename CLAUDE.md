@@ -1,4 +1,4 @@
-# local-eth-limo
+# dapp3
 
 Local-first, trust-minimized browser extension that resolves `*.eth` navigations directly against Ethereum state (via a Helios light client running in an offscreen document) and serves the contenthash from the user's own Kubo IPFS node. Replacement for the hijacked `eth.limo` public gateway.
 
@@ -47,7 +47,7 @@ The big things the layout hides:
 
 ## Conventions that matter
 
-- **Log prefix: `[local-eth-limo]`.** Grep for it when debugging a live session.
+- **Log prefix: `[dapp3]`.** Grep for it when debugging a live session.
 - Errors surfaced to the user go through the extension's own error page (`src/error/error.html`), not thrown into Chrome's DNS-failure UI.
 - All settings reads/writes go through `src/lib/settings.ts` — don't touch `chrome.storage.local` directly. The module's `onSettingsChanged` is load-bearing: the SW uses it to detect primary-RPC changes and reboot Helios.
 - **When the primary RPC changes** (`rpcUrls[0]`), the SW tears down Helios and reboots it. Helios takes one execution RPC at boot; swapping is not hot-reload.

@@ -10,7 +10,7 @@ const inputEl = document.getElementById("urlinput") as HTMLDivElement;
 reasonEl.textContent = reason;
 document.title = ensName
   ? `${ensName} · resolution failed`
-  : "local-eth-limo · resolution failed";
+  : "dapp3 · resolution failed";
 
 // Mirror the banner's parser: any `.eth` name (incl. subdomains), preserves path/query/hash.
 function parseEthInput(raw: string): string | null {

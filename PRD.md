@@ -1,4 +1,4 @@
-# local-eth-limo — Product Requirements Document
+# dapp3 — Product Requirements Document
 
 ## 1. Background & Motivation
 
