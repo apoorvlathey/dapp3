@@ -313,20 +313,27 @@ function buildBanner(): Refs {
 
 function applyBodyOffset() {
   const apply = () => {
-    if (!document.body) return;
+    if (!document.body) return false;
     const cur = parseFloat(getComputedStyle(document.body).marginTop) || 0;
     document.body.style.marginTop = `${Math.max(cur, HEIGHT_PX)}px`;
-    // Make <body> the containing block for its position:fixed descendants so
-    // page-level fixed navs/headers get pushed down by the margin above
-    // instead of overlapping the banner. The banner itself is a child of
-    // <html>, so it remains viewport-fixed. Only applied when the page hasn't
-    // already set a transform on body.
-    if (getComputedStyle(document.body).transform === "none") {
-      document.body.style.transform = "translateZ(0)";
-    }
+    // NOTE: do NOT set transform on <body> to "contain" page-level fixed
+    // headers. A transform on <body> makes it the containing block for *all*
+    // position:fixed descendants — which breaks dapp wallet-connect modals
+    // (RainbowKit, ConnectKit, Web3Modal) that expect viewport anchoring and
+    // end up clipped by the 44px body offset. The page's own fixed navs may
+    // overlap our banner's 44px; the banner has max z-index so it's still on
+    // top, and that overlap is a much smaller UX hit than broken modals.
+    return true;
   };
-  if (document.body) apply();
-  else document.addEventListener("DOMContentLoaded", apply, { once: true });
+  if (apply()) return;
+  // Body doesn't exist yet (we mounted at document_start before <body> parsed).
+  // Watch for it and apply the offset the instant it appears, so the page's
+  // first paint already accounts for the banner height instead of briefly
+  // rendering under it and snapping down at DOMContentLoaded.
+  const obs = new MutationObserver(() => {
+    if (apply()) obs.disconnect();
+  });
+  obs.observe(document.documentElement, { childList: true });
 }
 
 function wireSpaNav(onChange: () => void) {
@@ -463,11 +470,5 @@ async function mount(ctx: TabContext) {
 (async () => {
   const ctx = await getCtx();
   if (!ctx) return;
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => mount(ctx), {
-      once: true,
-    });
-  } else {
-    mount(ctx);
-  }
+  mount(ctx);
 })();
