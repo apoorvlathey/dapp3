@@ -357,6 +357,51 @@ ul.kv .v {
   text-align: right;
 }
 
+/* Toggle row (checkbox + label) */
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-card-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms;
+}
+
+.toggle-row:hover {
+  background: rgba(39, 39, 42, 0.4);
+  border-color: var(--border-strong);
+}
+
+.toggle-row input[type="checkbox"] {
+  margin: 2px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand-500);
+  cursor: pointer;
+  flex: none;
+}
+
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.toggle-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.toggle-sub {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .empty {
   padding: 20px 16px;
   color: var(--text-subtle);

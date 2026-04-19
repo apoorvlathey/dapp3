@@ -3,6 +3,11 @@ export type Settings = {
   consensusRpc?: string;
   checkpoint?: string;
   onboardingComplete?: boolean;
+  // Intercept `*.eth.limo` navigations and route them through local resolution
+  // (Helios + Kubo) instead of the public eth.limo gateway. Default true; gets
+  // forced false at onboarding if Kubo isn't reachable, since intercepting
+  // without a working IPFS node would just break eth.limo links for the user.
+  interceptEthLimo: boolean;
 };
 
 const KEY = "settings";
@@ -10,6 +15,7 @@ const KEY = "settings";
 const DEFAULT: Settings = {
   rpcUrls: [],
   onboardingComplete: false,
+  interceptEthLimo: true,
 };
 
 export async function getSettings(): Promise<Settings> {

@@ -39,6 +39,19 @@
         <button id="settings">Open settings</button>
       </div>
 
+      <div class="fallback" id="fallback" hidden>
+        <div class="fallback-text">
+          <span class="fallback-label">Fallback</span>
+          <span class="fallback-desc">
+            Open this name on the public eth.limo gateway instead. The content
+            is fetched without local trust-minimized verification.
+          </span>
+        </div>
+        <a id="ethlimo-link" class="fallback-link" rel="noopener noreferrer">
+          Open on eth.limo →
+        </a>
+      </div>
+
       <p class="footnote">
         Resolution happens locally. If this name worked elsewhere, the issue is
         usually a missing RPC, a rate-limited RPC, an unsupported codec, or an

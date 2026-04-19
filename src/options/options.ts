@@ -15,6 +15,9 @@ const listEl = document.getElementById("rpc-list") as HTMLDivElement;
 const addForm = document.getElementById("rpc-add") as HTMLFormElement;
 const consensusEl = document.getElementById("consensus-rpc") as HTMLElement;
 const heliosLiveEl = document.getElementById("helios-live") as HTMLElement;
+const interceptToggle = document.getElementById(
+  "intercept-ethlimo",
+) as HTMLInputElement;
 
 let cachedStats: Record<string, RpcStats> = {};
 let cachedUrls: string[] = [];
@@ -238,7 +241,12 @@ onStatsChanged((all) => {
 onSettingsChanged((s) => {
   cachedUrls = s.rpcUrls;
   consensusEl.textContent = s.consensusRpc || "(default) " + DEFAULT_CONSENSUS_RPC;
+  interceptToggle.checked = s.interceptEthLimo;
   render();
+});
+
+interceptToggle.addEventListener("change", async () => {
+  await setSettings({ interceptEthLimo: interceptToggle.checked });
 });
 
 (async () => {
@@ -249,6 +257,7 @@ onSettingsChanged((s) => {
   }
   cachedUrls = s.rpcUrls;
   consensusEl.textContent = s.consensusRpc || "(default) " + DEFAULT_CONSENSUS_RPC;
+  interceptToggle.checked = s.interceptEthLimo;
   await hydrateStats();
   pollHelios();
 })();

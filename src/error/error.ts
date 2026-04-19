@@ -3,6 +3,9 @@ import { setupAddressField } from "@/lib/url-field";
 const params = new URLSearchParams(location.search);
 const ensName = params.get("name") ?? "";
 const reason = params.get("error") ?? "Unknown error";
+const navPath = params.get("path") ?? "/";
+const navSearch = params.get("search") ?? "";
+const navHash = params.get("hash") ?? "";
 
 const reasonEl = document.getElementById("reason") as HTMLPreElement;
 const inputEl = document.getElementById("urlinput") as HTMLDivElement;
@@ -11,6 +14,26 @@ reasonEl.textContent = reason;
 document.title = ensName
   ? `${ensName} · resolution failed`
   : "dapp3 · resolution failed";
+
+// Build the public-gateway fallback URL mechanically: any `<name>.eth` is
+// served at `<name>.eth.limo`. Skip if we don't have a usable .eth name to
+// avoid offering a broken link (e.g. when the original navigation didn't pass
+// through ENS resolution at all).
+function buildEthLimoFallback(): string | null {
+  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) return null;
+  const path = navPath.startsWith("/") ? navPath : `/${navPath}`;
+  return `https://${ensName}.limo${path}${navSearch}${navHash}`;
+}
+
+const fallbackEl = document.getElementById("fallback") as HTMLDivElement;
+const fallbackLink = document.getElementById(
+  "ethlimo-link",
+) as HTMLAnchorElement;
+const fallbackUrl = buildEthLimoFallback();
+if (fallbackUrl) {
+  fallbackLink.href = fallbackUrl;
+  fallbackEl.hidden = false;
+}
 
 // Mirror the banner's parser: any `.eth` name (incl. subdomains), preserves path/query/hash.
 function parseEthInput(raw: string): string | null {

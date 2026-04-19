@@ -7,14 +7,27 @@ import type { TabContext } from "@/lib/messaging";
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
 
-// Dynamic DNR rule ID for the .eth → interstitial redirect. Must not collide
-// with the static rules in public/rules/no_https_upgrade.json (which use 1, 2).
+// Dynamic DNR rule IDs. Must not collide with the static rules in
+// public/rules/no_https_upgrade.json (which use 1, 2).
 const ETH_REDIRECT_RULE_ID = 1001;
+const ETH_LIMO_REDIRECT_RULE_ID = 1002;
 
-function errorPageUrl(name: string, error: string): string {
+function errorPageUrl(
+  name: string,
+  error: string,
+  path = "/",
+  search = "",
+  hash = "",
+): string {
   const u = new URL(chrome.runtime.getURL("src/error/error.html"));
   u.searchParams.set("name", name);
   u.searchParams.set("error", error);
+  // Path/search/hash are needed so the eth.limo fallback link the error page
+  // renders preserves the original target — otherwise a failed resolve of
+  // `foo.eth/some/path` would only offer `foo.eth.limo/`.
+  if (path && path !== "/") u.searchParams.set("path", path);
+  if (search) u.searchParams.set("search", search);
+  if (hash) u.searchParams.set("hash", hash);
   return u.toString();
 }
 
@@ -52,6 +65,44 @@ async function installEthRedirectRule() {
   });
 }
 
+async function syncEthLimoRedirectRule(enabled: boolean) {
+  // Rewrites `https?://<label>.eth.limo[:port][/path]` →
+  // `http://<label>.eth[/path]`. The existing .eth rule then catches the
+  // result and routes through the interstitial → resolver → gateway flow,
+  // so the user gets local Helios-verified content instead of the public
+  // (and currently flaky / WAF-403-ing) eth.limo gateway.
+  if (!enabled) {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [ETH_LIMO_REDIRECT_RULE_ID],
+    });
+    return;
+  }
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: [ETH_LIMO_REDIRECT_RULE_ID],
+    addRules: [
+      {
+        id: ETH_LIMO_REDIRECT_RULE_ID,
+        // Must be lower than the .eth rule's priority so the redirected
+        // request flows through the .eth rule on the next pass. (DNR
+        // priorities only matter for *competing* rules on the same request,
+        // but keeping these distinct makes the chain easier to reason about.)
+        priority: 1,
+        action: {
+          type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+          redirect: { regexSubstitution: "http://\\1.eth\\2" },
+        },
+        condition: {
+          regexFilter:
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.limo(?::\\d+)?(/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+        },
+      },
+    ],
+  });
+}
+
 async function resolveAndRedirect(
   tabId: number,
   ensName: string,
@@ -63,7 +114,7 @@ async function resolveAndRedirect(
   const result = await resolveEns(ensName, opts);
   if (!result.ok) {
     await chrome.tabs.update(tabId, {
-      url: errorPageUrl(ensName, result.error),
+      url: errorPageUrl(ensName, result.error, path, search, hash),
     });
     return;
   }
@@ -79,12 +130,18 @@ async function resolveAndRedirect(
   await chrome.tabs.update(tabId, { url: target });
 }
 
-// Ensure the DNR rule is registered on every SW wake-up. Dynamic rules persist
-// across restarts, but this keeps the rule in sync if the extension URL has
-// changed (e.g. reload during unpacked dev) and is a cheap no-op otherwise.
+// Ensure the DNR rules are registered on every SW wake-up. Dynamic rules
+// persist across restarts, but this keeps them in sync if the extension URL
+// has changed (e.g. reload during unpacked dev) and the user's eth.limo
+// preference may have flipped.
 installEthRedirectRule().then(
   () => console.log("[dapp3] .eth DNR redirect rule installed"),
   (e) => console.warn("[dapp3] failed to install .eth DNR rule", e),
+);
+getSettings().then((s) =>
+  syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
+    console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+  ),
 );
 
 // DNR handles the *.eth → interstitial redirect synchronously at the network
@@ -191,6 +248,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   installEthRedirectRule().catch((e) => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
+  getSettings().then((s) =>
+    syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
+      console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+    ),
+  );
   getOrStartHelios().catch(() => {
     /* no RPC yet is fine */
   });
@@ -206,9 +268,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 // When the active execution RPC changes (user reorders / removes / adds a new
 // primary), tear down Helios so the next resolve boots it against the new URL.
+// Also keep the eth.limo DNR rule in sync with the user's preference.
 let activePrimaryRpc: string | undefined;
+let activeInterceptEthLimo: boolean | undefined;
 getSettings().then((s) => {
   activePrimaryRpc = s.rpcUrls[0];
+  activeInterceptEthLimo = s.interceptEthLimo;
 });
 onSettingsChanged((s) => {
   const next = s.rpcUrls[0];
@@ -218,12 +283,23 @@ onSettingsChanged((s) => {
       .then(() => getOrStartHelios().catch(() => undefined))
       .catch(() => undefined);
   }
+  if (s.interceptEthLimo !== activeInterceptEthLimo) {
+    activeInterceptEthLimo = s.interceptEthLimo;
+    syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
+      console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+    );
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
   installEthRedirectRule().catch((e) => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
+  getSettings().then((s) =>
+    syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
+      console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+    ),
+  );
   getOrStartHelios().catch(() => {
     /* no RPC yet is fine */
   });

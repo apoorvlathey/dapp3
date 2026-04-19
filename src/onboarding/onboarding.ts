@@ -33,6 +33,11 @@ const ipfsText = document.getElementById("ipfs-status-text") as HTMLSpanElement;
 const ipfsNext = document.getElementById("ipfs-next") as HTMLButtonElement;
 const ipfsRecheck = document.getElementById("ipfs-recheck") as HTMLButtonElement;
 
+// Tracks the most recent IPFS probe result so the finish handler can persist
+// `interceptEthLimo` accurately. Defaults to false so a user who never makes
+// it through step 1 never has eth.limo interception silently enabled.
+let lastIpfsOk = false;
+
 async function probeIpfs(): Promise<boolean> {
   ipfsDot.classList.remove("ok", "bad");
   ipfsText.textContent = "checking Kubo gateway at 127.0.0.1:8080…";
@@ -47,11 +52,13 @@ async function probeIpfs(): Promise<boolean> {
     ipfsDot.classList.add("ok");
     ipfsText.textContent = "online · gateway reachable at localhost:8080";
     ipfsNext.disabled = false;
+    lastIpfsOk = true;
     return true;
   } catch (e) {
     ipfsDot.classList.add("bad");
     ipfsText.textContent = `not reachable: ${e instanceof Error ? e.message : String(e)}`;
     ipfsNext.disabled = true;
+    lastIpfsOk = false;
     return false;
   }
 }
@@ -246,7 +253,14 @@ async function startHelios() {
 }
 
 finishBtn.addEventListener("click", async () => {
-  await setSettings({ onboardingComplete: true });
+  // Default eth.limo interception only when Kubo was reachable at onboarding.
+  // If the user starts without IPFS, leaving the rule on would silently break
+  // every eth.limo link in their browser — the interception would rewrite to
+  // .eth, then resolution would fail at the gateway probe.
+  await setSettings({
+    onboardingComplete: true,
+    interceptEthLimo: lastIpfsOk,
+  });
   const url = chrome.runtime.getURL("src/options/options.html");
   location.replace(url);
 });

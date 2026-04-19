@@ -50,16 +50,35 @@ const statusLabelEl = document.getElementById("statusLabel") as HTMLSpanElement;
 const stageSubEl = document.getElementById("stageSub") as HTMLParagraphElement;
 const errorCardEl = document.getElementById("errorCard") as HTMLDivElement;
 const errorDetailEl = document.getElementById("errorDetail") as HTMLPreElement;
+const ethlimoFallbackEl = document.getElementById(
+  "ethlimoFallback",
+) as HTMLAnchorElement;
+
+// Mechanically derive `<name>.eth.limo` from the ENS target so the user has a
+// way out if Helios sync or the local resolve never succeeds. Only shown on a
+// real error state — we don't want to nudge users off our path during normal
+// "still syncing" waits.
+function ethLimoFallbackUrl(): string | null {
+  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) return null;
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `https://${ensName}.limo${p}${search}${hash}`;
+}
 
 function showError(detail: string) {
   errorDetailEl.textContent = detail;
   errorCardEl.hidden = false;
   stageSubEl.hidden = true;
+  const fb = ethLimoFallbackUrl();
+  if (fb) {
+    ethlimoFallbackEl.href = fb;
+    ethlimoFallbackEl.hidden = false;
+  }
 }
 
 function clearError() {
   errorCardEl.hidden = true;
   stageSubEl.hidden = false;
+  ethlimoFallbackEl.hidden = true;
 }
 
 type BadgeTone = "ok" | "syncing" | "warn";
