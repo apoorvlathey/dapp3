@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>local-eth-limo · resolving</title>
+    <link rel="stylesheet" href="./interstitial.css" />
+  </head>
+  <body>
+    <main>
+      <div class="card">
+        <div class="spinner"></div>
+        <h1 id="title">Resolving…</h1>
+        <p class="name" id="name">—</p>
+        <p class="status" id="status">Starting Helios…</p>
+        <div class="actions">
+          <button id="bypass" type="button">
+            Resolve via RPC (skip Helios this time)
+          </button>
+          <button id="cancel" type="button" class="secondary">Cancel</button>
+        </div>
+        <p class="footnote">
+          Helios is a light client that verifies ENS state against Ethereum's
+          consensus-committed state root. Skipping it means trusting your RPC
+          provider for this one resolution.
+        </p>
+      </div>
+    </main>
+    <script type="module" src="./interstitial.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "local-eth-limo",
+  "version": "0.0.1",
+  "description": "Local-first ENS gateway browser extension (Helios + Kubo).",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.28",
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^25.6.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  },
+  "dependencies": {
+    "@a16z/helios": "^0.11.1",
+    "@ensdomains/content-hash": "^3.0.0",
+    "multiformats": "^13.4.2",
+    "viem": "^2.48.1"
+  }
+}

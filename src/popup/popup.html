@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>local-eth-limo</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>local-eth-limo</h1>
+      <section class="row">
+        <span class="label">IPFS node</span>
+        <span id="ipfs-status" class="status">checking…</span>
+      </section>
+      <section class="row">
+        <span class="label">Helios</span>
+        <span id="helios-status" class="status">not yet wired (M3)</span>
+      </section>
+      <section class="row">
+        <button id="open-options">Open settings</button>
+      </section>
+    </main>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

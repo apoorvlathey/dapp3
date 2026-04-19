@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>local-eth-limo · setup</title>
+    <link rel="stylesheet" href="./onboarding.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>local-eth-limo</h1>
+        <p class="sub">
+          A local-first gateway: type <code>vitalik.eth</code>, serve from your
+          own IPFS node, verify ENS against Ethereum's consensus.
+        </p>
+      </header>
+
+      <nav class="stepper">
+        <span class="step" data-step="1">1 · IPFS</span>
+        <span class="step" data-step="2">2 · RPC</span>
+        <span class="step" data-step="3">3 · Advanced</span>
+        <span class="step" data-step="4">4 · Sync</span>
+      </nav>
+
+      <!-- Step 1: IPFS -->
+      <section class="step-panel" data-step="1">
+        <h2>Step 1 — Local IPFS (Kubo) node</h2>
+        <p>
+          Content is served from your own Kubo node. Install
+          <a
+            href="https://docs.ipfs.tech/install/ipfs-desktop/"
+            target="_blank"
+            rel="noopener"
+            >IPFS Desktop</a
+          >
+          (easiest) or run <code>kubo</code> directly. The extension only
+          needs the subdomain gateway at <code>http://localhost:8080</code>.
+        </p>
+        <div class="statusbox" id="ipfs-statusbox">
+          <span class="dot" id="ipfs-dot"></span>
+          <span id="ipfs-status-text">checking…</span>
+        </div>
+        <details>
+          <summary>Troubleshooting</summary>
+          <ul>
+            <li>
+              Confirm the gateway is reachable:
+              <code
+                >curl -I http://bafkqaaa.ipfs.localhost:8080/</code
+              >
+              — should return <code>200 OK</code>.
+            </li>
+            <li>
+              If that returns <code>301</code> to the path gateway, your Kubo
+              is configured without the subdomain gateway. In IPFS Desktop,
+              toggle the experimental subdomain gateway, or set
+              <code>Gateway.PublicGateways."localhost".UseSubdomains = true</code>
+              in <code>~/.ipfs/config</code> and restart.
+            </li>
+            <li>
+              Cross-origin: the browser treats each
+              <code>&lt;cid&gt;.ipfs.localhost</code> as its own origin, so
+              Kubo's API Origin allowlist doesn't apply to the content path we
+              use.
+            </li>
+          </ul>
+        </details>
+        <div class="actions">
+          <button id="ipfs-recheck" type="button">Re-check</button>
+          <button id="ipfs-next" type="button" class="primary" disabled>
+            Next →
+          </button>
+        </div>
+      </section>
+
+      <!-- Step 2: RPC -->
+      <section class="step-panel" data-step="2" hidden>
+        <h2>Step 2 — Ethereum execution RPC</h2>
+        <p>
+          Provide a mainnet execution RPC URL. It doesn't need to be trusted:
+          Helios verifies every state read against the consensus-committed
+          state root.
+        </p>
+        <form id="rpc-form">
+          <input
+            type="url"
+            name="url"
+            placeholder="https://your-rpc.example/…"
+            required
+          />
+          <button type="submit" class="primary">Add &amp; Continue →</button>
+        </form>
+
+        <div class="explainer">
+          <h3>About the permission prompt you're about to see</h3>
+          <p>
+            Chrome will ask you to grant access to two hosts:
+          </p>
+          <ul id="perm-preview" class="perm-preview"></ul>
+          <p>
+            Chrome's wording is
+            <em>"Read and change your data on [host]"</em>. That phrase is
+            Chrome's generic template for any host permission — it looks the
+            same whether an extension reads one JSON field or fully takes over
+            a page. It does <strong>not</strong> reflect what this extension
+            actually does.
+          </p>
+          <p>What this extension actually does with that permission:</p>
+          <ul>
+            <li>
+              <strong>Reads</strong> Ethereum state via JSON-RPC
+              (<code>eth_call</code>, <code>eth_getBlockByNumber</code>, etc.)
+              to resolve ENS names.
+            </li>
+            <li>
+              <strong>Reads</strong> beacon-chain light-client updates from
+              the consensus RPC so Helios can verify that state.
+            </li>
+            <li>
+              <strong>Never</strong> sends transactions, never touches wallet
+              accounts, never uploads anything.
+            </li>
+          </ul>
+          <p>
+            Source is
+            <a
+              href="https://github.com/apoorvlathey/local-eth-limo"
+              target="_blank"
+              rel="noopener"
+              >on GitHub</a
+            >
+            — the RPC calls are in
+            <code>src/lib/resolver.ts</code> and the consensus fetch in
+            <code>src/offscreen/offscreen.ts</code>.
+          </p>
+        </div>
+
+        <div class="actions secondary-row">
+          <button id="rpc-back" type="button">← Back</button>
+        </div>
+      </section>
+
+      <!-- Step 3: Advanced -->
+      <section class="step-panel" data-step="3" hidden>
+        <h2>Step 3 — Advanced (optional)</h2>
+        <p>
+          Defaults work for most users. You can override Helios's consensus
+          RPC and weak-subjectivity checkpoint here.
+        </p>
+        <form id="advanced-form">
+          <label>
+            <span>Consensus RPC</span>
+            <input
+              type="url"
+              name="consensusRpc"
+              placeholder="https://lodestar-mainnet.chainsafe.io"
+            />
+            <small>
+              Default is
+              <code>https://lodestar-mainnet.chainsafe.io</code>
+              (HTTPS end-to-end, correctly honors <code>count</code> on the
+              <code>/eth/v1/beacon/light_client/updates</code> endpoint — a
+              requirement for Helios fresh-checkpoint sync). Most public
+              beacon APIs either don't expose light-client endpoints or
+              return stray old-period updates that break Helios — stick with
+              the default unless you have a good reason. Click a chip to
+              apply:
+              <span class="chips" id="consensus-chips"></span>
+            </small>
+          </label>
+          <label>
+            <span>Checkpoint hash</span>
+            <input
+              type="text"
+              name="checkpoint"
+              placeholder="0x… (leave empty to auto-fetch finalized)"
+              pattern="^(0x)?[0-9a-fA-F]{64}$"
+            />
+            <small>
+              Leave empty: the extension fetches a fresh finalized-block root
+              from the consensus RPC on each cold start (recommended). Paste a
+              specific hash only if you want to pin a known checkpoint, e.g.
+              from
+              <a
+                href="https://sync-mainnet.beaconcha.in"
+                target="_blank"
+                rel="noopener"
+                >sync-mainnet.beaconcha.in</a
+              >.
+            </small>
+          </label>
+          <div class="actions">
+            <button id="adv-back" type="button">← Back</button>
+            <button type="submit" class="primary">Save &amp; Continue →</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Step 4: Sync -->
+      <section class="step-panel" data-step="4" hidden>
+        <h2>Step 4 — Bootstrap Helios</h2>
+        <p>
+          The light client is starting up. On a cold start it needs to fetch a
+          recent checkpoint and catch up to head. This usually takes &lt;30s.
+        </p>
+        <div class="statusbox">
+          <span class="dot" id="helios-dot"></span>
+          <span id="helios-status-text">waiting…</span>
+        </div>
+        <div class="actions">
+          <button id="sync-back" type="button">← Change settings</button>
+          <button id="finish" type="button" class="primary" disabled>
+            Finish setup
+          </button>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./onboarding.ts"></script>
+  </body>
+</html>
