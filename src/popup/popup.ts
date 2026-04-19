@@ -2,7 +2,25 @@ import type { HeliosStatus } from "@/lib/helios-bridge";
 import { getSettings } from "@/lib/settings";
 
 const ipfsEl = document.getElementById("ipfs-status") as HTMLSpanElement;
+const ipfsDot = document.getElementById("ipfs-dot") as HTMLSpanElement;
 const heliosEl = document.getElementById("helios-status") as HTMLSpanElement;
+const heliosDot = document.getElementById("helios-dot") as HTMLSpanElement;
+const heliosErrorCard = document.getElementById(
+  "helios-error-card",
+) as HTMLDivElement;
+const heliosErrorDetail = document.getElementById(
+  "helios-error-detail",
+) as HTMLPreElement;
+
+function setDot(dot: HTMLSpanElement, kind: "ok" | "bad" | "syncing" | "idle") {
+  dot.classList.remove("ok", "bad", "syncing");
+  if (kind !== "idle") dot.classList.add(kind);
+}
+
+function setStatus(el: HTMLSpanElement, kind: "ok" | "bad" | "idle") {
+  el.classList.remove("ok", "bad");
+  if (kind !== "idle") el.classList.add(kind);
+}
 
 async function probeIpfs() {
   try {
@@ -11,36 +29,59 @@ async function probeIpfs() {
       signal: AbortSignal.timeout(1500),
     });
     ipfsEl.textContent = "online";
-    ipfsEl.classList.add("ok");
+    setStatus(ipfsEl, "ok");
+    setDot(ipfsDot, "ok");
   } catch {
     ipfsEl.textContent = "offline";
-    ipfsEl.classList.add("bad");
+    setStatus(ipfsEl, "bad");
+    setDot(ipfsDot, "bad");
   }
 }
 
+function showHeliosError(detail: string) {
+  heliosErrorDetail.textContent = detail;
+  heliosErrorCard.hidden = false;
+}
+
+function clearHeliosError() {
+  heliosErrorCard.hidden = true;
+}
+
 function renderHelios(status: HeliosStatus | null) {
-  heliosEl.classList.remove("ok", "bad");
+  setStatus(heliosEl, "idle");
   if (!status) {
     heliosEl.textContent = "unknown";
+    setDot(heliosDot, "idle");
+    clearHeliosError();
     return;
   }
   switch (status.state) {
     case "idle":
       heliosEl.textContent = "not started";
+      setDot(heliosDot, "idle");
+      clearHeliosError();
       break;
     case "booting":
       heliosEl.textContent = "booting…";
+      setDot(heliosDot, "syncing");
+      clearHeliosError();
       break;
     case "syncing":
       heliosEl.textContent = "syncing…";
+      setDot(heliosDot, "syncing");
+      clearHeliosError();
       break;
     case "synced":
       heliosEl.textContent = "online";
-      heliosEl.classList.add("ok");
+      setStatus(heliosEl, "ok");
+      setDot(heliosDot, "ok");
+      clearHeliosError();
       break;
     case "error":
-      heliosEl.textContent = `error: ${status.error ?? "unknown"}`;
-      heliosEl.classList.add("bad");
+      heliosEl.textContent = "error";
+      setStatus(heliosEl, "bad");
+      setDot(heliosDot, "bad");
+      showHeliosError(status.error ?? "Unknown error");
       break;
   }
 }

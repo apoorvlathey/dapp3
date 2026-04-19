@@ -6,14 +6,39 @@
     <link rel="stylesheet" href="./error.css" />
   </head>
   <body>
+    <header class="topbar">
+      <div class="brand-row">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981"/>
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
+          </svg>
+        </span>
+        <span>local-eth-limo</span>
+      </div>
+      <div class="addrpill" id="addrform" role="search">
+        <svg class="magnifier" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5"/>
+          <path d="M10.5 10.5 L14 14"/>
+        </svg>
+        <div class="urlfield" id="urlinput"></div>
+      </div>
+      <div class="topbar-spacer"></div>
+    </header>
     <main>
-      <h1>Resolution failed</h1>
-      <p class="name" id="name">—</p>
-      <pre id="reason"></pre>
+      <span class="error-label">Resolution failed</span>
+      <h1>Couldn't resolve this name</h1>
+
+      <div class="error-card">
+        <div class="error-card-label">Reason</div>
+        <pre id="reason"></pre>
+      </div>
+
       <div class="actions">
         <button id="retry">Retry</button>
         <button id="settings">Open settings</button>
       </div>
+
       <p class="footnote">
         Resolution happens locally. If this name worked elsewhere, the issue is
         usually a missing RPC, a rate-limited RPC, an unsupported codec, or an

@@ -1,10 +1,10 @@
 import type { TabContext } from "@/lib/messaging";
 import type { HeliosStatus } from "@/lib/helios-bridge";
+import { setupAddressField, type AddressField } from "@/lib/url-field";
 
 const BANNER_ID = "local-eth-limo-banner";
-const HEIGHT_PX = 36;
+const HEIGHT_PX = 44;
 const POLL_MS = 2000;
-const DISABLED_KEY = `leLimoBannerDisabled:${location.origin}`;
 
 async function getCtx(): Promise<TabContext | null> {
   const resp = await chrome.runtime.sendMessage({ type: "get-tab-ctx" });
@@ -20,16 +20,7 @@ async function getHeliosStatus(): Promise<HeliosStatus | null> {
   }
 }
 
-async function isDisabledForOrigin(): Promise<boolean> {
-  const res = await chrome.storage.local.get(DISABLED_KEY);
-  return !!res[DISABLED_KEY];
-}
-
-async function setDisabledForOrigin(): Promise<void> {
-  await chrome.storage.local.set({ [DISABLED_KEY]: true });
-}
-
-type Dot = "ok" | "syncing" | "warn";
+type Dot = "ok" | "syncing" | "caution" | "warn";
 
 function pickDot(ctx: TabContext, status: HeliosStatus | null): {
   dot: Dot;
@@ -38,7 +29,7 @@ function pickDot(ctx: TabContext, status: HeliosStatus | null): {
 } {
   if (ctx.trustedDirectly) {
     return {
-      dot: "warn",
+      dot: "caution",
       label: "RPC-trusted",
       title:
         "This page was resolved by trusting your RPC directly (Helios bypassed). The ENS→content mapping was not verified against Ethereum consensus.",
@@ -92,17 +83,32 @@ function underlyingUrl(): string {
 
 type Refs = {
   host: HTMLDivElement;
+  shadow: ShadowRoot;
   dot: HTMLSpanElement;
+  statusWrap: HTMLSpanElement;
   stateText: HTMLSpanElement;
-  name: HTMLSpanElement;
-  path: HTMLSpanElement;
+  urlForm: HTMLElement;
+  urlInput: HTMLElement;
   menuBtn: HTMLButtonElement;
   menu: HTMLDivElement;
   copyItem: HTMLButtonElement;
-  disableItem: HTMLButtonElement;
   settingsItem: HTMLButtonElement;
   copyToast: HTMLSpanElement;
 };
+
+// Parse an address-bar-style input into a navigable `http://<name>.eth/...` URL.
+// Returns null when the input isn't a `.eth` target (matches the scope enforced
+// by the SW's ETH_HOST_RE + the DNR rule's regexFilter). Accepts subdomains.
+function parseEthInput(raw: string): string | null {
+  const trimmed = raw.trim().replace(/^https?:\/\//i, "");
+  if (!trimmed) return null;
+  const m = trimmed.match(/^([^\/\?#]+)(.*)$/);
+  if (!m || !m[1]) return null;
+  const host = m[1].toLowerCase();
+  const rest = m[2] || "/";
+  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(host)) return null;
+  return `http://${host}${rest.startsWith("/") || rest.startsWith("?") || rest.startsWith("#") ? rest : `/${rest}`}`;
+}
 
 function buildBanner(): Refs {
   const host = document.createElement("div");
@@ -128,74 +134,124 @@ function buildBanner(): Refs {
     .bar {
       display: flex; align-items: center; gap: 10px;
       height: ${HEIGHT_PX}px; padding: 0 10px 0 12px;
-      font: 500 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0b0f19; color: #e6edf3;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+      font: 500 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background: #09090b; color: #f4f4f5;
+      border-bottom: 1px solid #27272a;
     }
-    .status { display: inline-flex; align-items: center; gap: 6px; color: #e6edf3; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; flex: none; }
-    .dot.ok { background: #10b981; box-shadow: 0 0 0 2px rgba(16,185,129,0.18); }
+    .brand-mark {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 4px;
+      background: #18181b; border: 1px solid #27272a;
+      flex: none;
+    }
+    .brand-mark svg { width: 12px; height: 12px; display: block; }
+    .status {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 3px 8px; border-radius: 4px;
+      background: #18181b; border: 1px solid #27272a;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; flex: none; }
+    .dot.ok { background: #10b981; }
     .dot.syncing {
-      background: #f59e0b;
-      box-shadow: 0 0 0 2px rgba(245,158,11,0.18);
+      background: #fbbf24;
       animation: pulse 1.4s ease-in-out infinite;
     }
-    .dot.warn { background: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.18); }
+    .dot.caution { background: #fbbf24; }
+    .dot.warn { background: #f43f5e; }
     @keyframes pulse {
       0%, 100% { opacity: 1; }
-      50% { opacity: 0.45; }
+      50%      { opacity: 0.4; }
     }
-    .statelabel { color: #9aa7b8; font-weight: 500; }
+    .statelabel {
+      color: #a1a1aa; font-weight: 500;
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .status.ok  .statelabel  { color: #6ee7b7; }
+    .status.caution .statelabel { color: #fbbf24; }
+    .status.warn .statelabel { color: #fb7185; }
     .left, .right {
       display: inline-flex; align-items: center; gap: 10px;
       flex: 1 1 0; min-width: 0;
     }
     .right { justify-content: flex-end; }
     .identity {
-      display: inline-flex; align-items: baseline; gap: 0;
-      flex: 0 1 auto; min-width: 0; max-width: 60%;
-      overflow: hidden; justify-content: center;
-      padding: 0 16px;
+      display: inline-flex; align-items: center; gap: 8px;
+      flex: 0 1 560px; min-width: 0;
+      height: 24px; padding: 0 10px;
+      background: #18181b; border: 1px solid #27272a;
+      border-radius: 12px;
+      transition: border-color 150ms, background-color 150ms;
     }
-    .name {
-      font-weight: 700; color: #ffffff;
+    .identity:hover { background: #1f1f22; }
+    .identity:focus-within {
+      background: #09090b;
+      border-color: #3f3f46;
+    }
+    .identity svg.magnifier {
+      width: 12px; height: 12px; color: #71717a; flex: none; display: block;
+      transition: color 150ms;
+    }
+    .identity:focus-within svg.magnifier { color: #a1a1aa; }
+    .identity .urlfield {
+      flex: 1 1 auto; min-width: 0;
+      font: 500 12px/1 "SF Mono", Menlo, Monaco, ui-monospace, monospace;
+      color: #6ee7b7;
+      text-align: center;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      outline: none;
+      cursor: text;
     }
-    .path {
-      color: #9aa7b8; font-weight: 400;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      min-width: 0;
+    .identity .urlfield:empty::before {
+      content: attr(data-placeholder);
+      color: #52525b;
+    }
+    .identity .urlfield .u-host { color: #6ee7b7; }
+    .identity .urlfield .u-path { color: #6ee7b7; opacity: 0.5; }
+    .identity .urlfield::selection,
+    .identity .urlfield *::selection {
+      background: rgba(16, 185, 129, 0.3); color: #a7f3d0;
+    }
+    .identity:has(.urlfield.shake) { border-color: #f43f5e; }
+    .urlfield.shake { animation: shake 0.4s ease; }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25%      { transform: translateX(-3px); }
+      75%      { transform: translateX(3px); }
     }
     .menu-wrap { position: relative; }
     .menu-btn {
       all: unset;
       display: inline-flex; align-items: center; justify-content: center;
       width: 26px; height: 26px; border-radius: 4px;
-      color: #e6edf3; cursor: pointer;
+      color: #a1a1aa; cursor: pointer;
       font-size: 16px; line-height: 1;
+      transition: background-color 150ms, color 150ms;
     }
-    .menu-btn:hover { background: rgba(255,255,255,0.08); }
+    .menu-btn:hover { background: #27272a; color: #f4f4f5; }
     .menu {
       position: absolute; top: calc(100% + 4px); right: 0;
       display: none; min-width: 220px;
-      background: #0f1524; color: #e6edf3;
-      border: 1px solid rgba(255,255,255,0.1);
+      background: #18181b; color: #e4e4e7;
+      border: 1px solid #27272a;
       border-radius: 6px; padding: 4px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
     }
     .menu.open { display: block; }
     .menu button {
       all: unset;
       display: block; width: 100%; box-sizing: border-box;
       padding: 7px 10px; border-radius: 4px;
-      font: 500 12px/1 inherit; color: #e6edf3; cursor: pointer;
+      font: 500 12px/1.3 inherit; color: #e4e4e7; cursor: pointer;
       text-align: left;
+      transition: background-color 150ms, color 150ms;
     }
-    .menu button:hover { background: rgba(255,255,255,0.08); }
+    .menu button:hover { background: #27272a; color: #f4f4f5; }
     .toast {
       display: none;
-      color: #10b981; font-weight: 500;
+      color: #6ee7b7; font-weight: 500;
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
     }
     .toast.show { display: inline; }
   `;
@@ -204,21 +260,30 @@ function buildBanner(): Refs {
   bar.className = "bar";
   bar.innerHTML = `
     <span class="left">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981"/>
+          <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
+        </svg>
+      </span>
       <span class="status">
         <span class="dot"></span>
         <span class="statelabel"></span>
       </span>
     </span>
-    <span class="identity">
-      <span class="name"></span><span class="path"></span>
-    </span>
+    <div class="identity" role="search">
+      <svg class="magnifier" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.5"/>
+        <path d="M10.5 10.5 L14 14"/>
+      </svg>
+      <div class="urlfield"></div>
+    </div>
     <span class="right">
       <span class="toast">copied</span>
       <span class="menu-wrap">
         <button class="menu-btn" type="button" aria-label="banner menu" title="Banner options">⋯</button>
         <div class="menu" role="menu">
           <button data-act="copy" type="button">Copy underlying URL</button>
-          <button data-act="disable" type="button">Hide banner on this origin</button>
           <button data-act="settings" type="button">Open extension settings</button>
         </div>
       </span>
@@ -232,14 +297,15 @@ function buildBanner(): Refs {
 
   return {
     host,
+    shadow,
     dot: q<HTMLSpanElement>(".dot"),
+    statusWrap: q<HTMLSpanElement>(".status"),
     stateText: q<HTMLSpanElement>(".statelabel"),
-    name: q<HTMLSpanElement>(".name"),
-    path: q<HTMLSpanElement>(".path"),
+    urlForm: q<HTMLElement>(".identity"),
+    urlInput: q<HTMLElement>(".urlfield"),
     menuBtn: q<HTMLButtonElement>(".menu-btn"),
     menu: q<HTMLDivElement>(".menu"),
     copyItem: q<HTMLButtonElement>('button[data-act="copy"]'),
-    disableItem: q<HTMLButtonElement>('button[data-act="disable"]'),
     settingsItem: q<HTMLButtonElement>('button[data-act="settings"]'),
     copyToast: q<HTMLSpanElement>(".toast"),
   };
@@ -250,15 +316,17 @@ function applyBodyOffset() {
     if (!document.body) return;
     const cur = parseFloat(getComputedStyle(document.body).marginTop) || 0;
     document.body.style.marginTop = `${Math.max(cur, HEIGHT_PX)}px`;
+    // Make <body> the containing block for its position:fixed descendants so
+    // page-level fixed navs/headers get pushed down by the margin above
+    // instead of overlapping the banner. The banner itself is a child of
+    // <html>, so it remains viewport-fixed. Only applied when the page hasn't
+    // already set a transform on body.
+    if (getComputedStyle(document.body).transform === "none") {
+      document.body.style.transform = "translateZ(0)";
+    }
   };
   if (document.body) apply();
   else document.addEventListener("DOMContentLoaded", apply, { once: true });
-}
-
-function revertBodyOffset() {
-  if (!document.body) return;
-  const cur = parseFloat(getComputedStyle(document.body).marginTop) || 0;
-  if (cur === HEIGHT_PX) document.body.style.marginTop = "";
 }
 
 function wireSpaNav(onChange: () => void) {
@@ -279,7 +347,7 @@ function wireSpaNav(onChange: () => void) {
   window.addEventListener("hashchange", onChange);
 }
 
-function wireMenu(refs: Refs, onDisable: () => void) {
+function wireMenu(refs: Refs) {
   const close = () => refs.menu.classList.remove("open");
   refs.menuBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -315,18 +383,37 @@ function wireMenu(refs: Refs, onDisable: () => void) {
     }
   });
 
-  refs.disableItem.addEventListener("click", async () => {
-    close();
-    await setDisabledForOrigin();
-    onDisable();
-  });
-
   refs.settingsItem.addEventListener("click", () => {
     close();
     chrome.runtime.sendMessage({ type: "open-options" }).catch(() => {
       // best-effort; the SW might not handle it, that's fine
     });
   });
+}
+
+function wireAddressBar(
+  refs: Refs,
+  getCurrentValue: () => string,
+): AddressField {
+  const field: AddressField = setupAddressField(refs.urlInput, {
+    shadowRoot: refs.shadow,
+    placeholder: "name.eth",
+    onSubmit: (text) => {
+      const url = parseEthInput(text);
+      if (!url) {
+        field.shake();
+        return;
+      }
+      // DNR redirects the *.eth main_frame to the interstitial, which then
+      // drives the SW resolve. Same path as typing into Chrome's own address bar.
+      location.assign(url);
+    },
+    onEscape: () => {
+      field.setValue(getCurrentValue());
+      refs.urlInput.blur();
+    },
+  });
+  return field;
 }
 
 async function mount(ctx: TabContext) {
@@ -336,27 +423,32 @@ async function mount(ctx: TabContext) {
   (document.documentElement || document.body).appendChild(refs.host);
 
   let currentStatus: HeliosStatus | null = null;
+  let inputFocused = false;
+  refs.urlInput.addEventListener("focus", () => (inputFocused = true));
+  refs.urlInput.addEventListener("blur", () => (inputFocused = false));
+
+  const currentUrlValue = () => `${ctx.ensName}${currentPath()}`;
+  const field = wireAddressBar(refs, currentUrlValue);
 
   const render = () => {
     const { dot, label, title } = pickDot(ctx, currentStatus);
-    refs.dot.classList.remove("ok", "syncing", "warn");
+    refs.dot.classList.remove("ok", "syncing", "caution", "warn");
     refs.dot.classList.add(dot);
     refs.dot.title = title;
+    refs.statusWrap.classList.remove("ok", "syncing", "caution", "warn");
+    refs.statusWrap.classList.add(dot);
     refs.stateText.textContent = label;
     refs.stateText.title = title;
 
-    refs.name.textContent = ctx.ensName;
-    refs.path.textContent = currentPath();
+    // Don't stomp the user's in-progress edit.
+    if (!inputFocused) field.setValue(currentUrlValue());
   };
 
   render();
   applyBodyOffset();
 
   wireSpaNav(render);
-  wireMenu(refs, () => {
-    refs.host.remove();
-    revertBodyOffset();
-  });
+  wireMenu(refs);
 
   // Live Helios status polling. Stops when the banner element is removed.
   (async () => {
@@ -369,7 +461,6 @@ async function mount(ctx: TabContext) {
 }
 
 (async () => {
-  if (await isDisabledForOrigin()) return;
   const ctx = await getCtx();
   if (!ctx) return;
   if (document.readyState === "loading") {

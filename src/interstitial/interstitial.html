@@ -6,23 +6,53 @@
     <link rel="stylesheet" href="./interstitial.css" />
   </head>
   <body>
-    <main>
-      <div class="card">
-        <div class="spinner"></div>
-        <h1 id="title">Resolving…</h1>
-        <p class="name" id="name">—</p>
-        <p class="status" id="status">Starting Helios…</p>
-        <div class="actions">
-          <button id="bypass" type="button">
-            Resolve via RPC (skip Helios this time)
-          </button>
-          <button id="cancel" type="button" class="secondary">Cancel</button>
+    <div id="bar" class="bar"></div>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981"/>
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
+          </svg>
+        </span>
+        <span class="status" id="statusBadge">
+          <span class="dot" id="statusDot"></span>
+          <span class="statelabel" id="statusLabel">Helios offline</span>
+        </span>
+      </div>
+      <div class="info">
+        <div class="addrpill" role="group" aria-label="Resolving address">
+          <svg class="magnifier" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5"/>
+            <path d="M10.5 10.5 L14 14"/>
+          </svg>
+          <span class="name" id="name">—</span>
         </div>
-        <p class="footnote">
-          Helios is a light client that verifies ENS state against Ethereum's
-          consensus-committed state root. Skipping it means trusting your RPC
-          provider for this one resolution.
-        </p>
+      </div>
+      <div class="actions">
+        <button id="bypass" type="button" class="ghost">
+          Skip Helios this time
+        </button>
+        <button id="cancel" type="button" class="ghost secondary">
+          Cancel
+        </button>
+      </div>
+    </header>
+    <main class="stage">
+      <div id="loader" class="sonar" aria-hidden="true">
+        <span class="ping"></span>
+        <span class="ping"></span>
+        <span class="ping"></span>
+        <span class="core"></span>
+      </div>
+      <p class="stage-status" id="status">Starting Helios…</p>
+      <p class="stage-sub" id="stageSub">
+        Verifying ENS state against Ethereum consensus, then fetching from your
+        local IPFS node.
+      </p>
+      <div class="stage-error" id="errorCard" hidden>
+        <div class="stage-error-label">Reason</div>
+        <pre id="errorDetail"></pre>
       </div>
     </main>
     <script type="module" src="./interstitial.ts"></script>

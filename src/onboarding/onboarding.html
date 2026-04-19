@@ -8,6 +8,12 @@
   <body>
     <main>
       <header>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981"/>
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
+          </svg>
+        </span>
         <h1>local-eth-limo</h1>
         <p class="sub">
           A local-first gateway: type <code>vitalik.eth</code>, serve from your
@@ -24,44 +30,34 @@
 
       <!-- Step 1: IPFS -->
       <section class="step-panel" data-step="1">
-        <h2>Step 1 — Local IPFS (Kubo) node</h2>
+        <h2>Local IPFS node</h2>
         <p>
-          Content is served from your own Kubo node. Install
+          Install
           <a
             href="https://docs.ipfs.tech/install/ipfs-desktop/"
             target="_blank"
             rel="noopener"
             >IPFS Desktop</a
           >
-          (easiest) or run <code>kubo</code> directly. The extension only
-          needs the subdomain gateway at <code>http://localhost:8080</code>.
+          or run <code>kubo</code>. Needs the subdomain gateway at
+          <code>localhost:8080</code>.
         </p>
         <div class="statusbox" id="ipfs-statusbox">
           <span class="dot" id="ipfs-dot"></span>
           <span id="ipfs-status-text">checking…</span>
         </div>
         <details>
-          <summary>Troubleshooting</summary>
+          <summary>Not connecting?</summary>
           <ul>
             <li>
-              Confirm the gateway is reachable:
-              <code
-                >curl -I http://bafkqaaa.ipfs.localhost:8080/</code
-              >
-              — should return <code>200 OK</code>.
+              Test: <code>curl -I http://bafkqaaa.ipfs.localhost:8080/</code>
+              should return <code>200</code>.
             </li>
             <li>
-              If that returns <code>301</code> to the path gateway, your Kubo
-              is configured without the subdomain gateway. In IPFS Desktop,
-              toggle the experimental subdomain gateway, or set
+              Getting <code>301</code>? Enable the subdomain gateway in IPFS
+              Desktop, or set
               <code>Gateway.PublicGateways."localhost".UseSubdomains = true</code>
-              in <code>~/.ipfs/config</code> and restart.
-            </li>
-            <li>
-              Cross-origin: the browser treats each
-              <code>&lt;cid&gt;.ipfs.localhost</code> as its own origin, so
-              Kubo's API Origin allowlist doesn't apply to the content path we
-              use.
+              in <code>~/.ipfs/config</code>.
             </li>
           </ul>
         </details>
@@ -75,11 +71,13 @@
 
       <!-- Step 2: RPC -->
       <section class="step-panel" data-step="2" hidden>
-        <h2>Step 2 — Ethereum execution RPC</h2>
+        <div class="step-nav-top">
+          <button id="rpc-back" type="button" class="back-btn">← Back</button>
+        </div>
+        <h2>Ethereum execution RPC</h2>
         <p>
-          Provide a mainnet execution RPC URL. It doesn't need to be trusted:
-          Helios verifies every state read against the consensus-committed
-          state root.
+          Paste any mainnet RPC URL. Helios verifies every read — the RPC
+          doesn't need to be trusted.
         </p>
         <form id="rpc-form">
           <input
@@ -91,62 +89,48 @@
           <button type="submit" class="primary">Add &amp; Continue →</button>
         </form>
 
-        <div class="explainer">
-          <h3>About the permission prompt you're about to see</h3>
-          <p>
-            Chrome will ask you to grant access to two hosts:
-          </p>
-          <ul id="perm-preview" class="perm-preview"></ul>
-          <p>
-            Chrome's wording is
-            <em>"Read and change your data on [host]"</em>. That phrase is
-            Chrome's generic template for any host permission — it looks the
-            same whether an extension reads one JSON field or fully takes over
-            a page. It does <strong>not</strong> reflect what this extension
-            actually does.
-          </p>
-          <p>What this extension actually does with that permission:</p>
-          <ul>
-            <li>
-              <strong>Reads</strong> Ethereum state via JSON-RPC
-              (<code>eth_call</code>, <code>eth_getBlockByNumber</code>, etc.)
-              to resolve ENS names.
-            </li>
-            <li>
-              <strong>Reads</strong> beacon-chain light-client updates from
-              the consensus RPC so Helios can verify that state.
-            </li>
-            <li>
-              <strong>Never</strong> sends transactions, never touches wallet
-              accounts, never uploads anything.
-            </li>
-          </ul>
-          <p>
-            Source is
-            <a
-              href="https://github.com/apoorvlathey/local-eth-limo"
-              target="_blank"
-              rel="noopener"
-              >on GitHub</a
-            >
-            — the RPC calls are in
-            <code>src/lib/resolver.ts</code> and the consensus fetch in
-            <code>src/offscreen/offscreen.ts</code>.
-          </p>
-        </div>
-
-        <div class="actions secondary-row">
-          <button id="rpc-back" type="button">← Back</button>
-        </div>
+        <details class="explainer-details">
+          <summary>About the Chrome permission prompt</summary>
+          <div class="explainer">
+            <p>Chrome will ask for access to two hosts:</p>
+            <ul id="perm-preview" class="perm-preview"></ul>
+            <p>
+              Chrome says <em>"Read and change your data on [host]"</em> for any
+              host permission — it's a generic template, not what we do.
+            </p>
+            <p>This extension only:</p>
+            <ul>
+              <li>
+                <strong>Reads</strong> Ethereum state (<code>eth_call</code>,
+                etc.) to resolve ENS names.
+              </li>
+              <li>
+                <strong>Reads</strong> beacon-chain data so Helios can verify
+                it.
+              </li>
+              <li>
+                <strong>Never</strong> sends transactions or touches wallets.
+              </li>
+            </ul>
+            <p>
+              <a
+                href="https://github.com/apoorvlathey/local-eth-limo"
+                target="_blank"
+                rel="noopener"
+                >Source on GitHub</a
+              >.
+            </p>
+          </div>
+        </details>
       </section>
 
       <!-- Step 3: Advanced -->
       <section class="step-panel" data-step="3" hidden>
-        <h2>Step 3 — Advanced (optional)</h2>
-        <p>
-          Defaults work for most users. You can override Helios's consensus
-          RPC and weak-subjectivity checkpoint here.
-        </p>
+        <div class="step-nav-top">
+          <button id="adv-back" type="button" class="back-btn">← Back</button>
+        </div>
+        <h2>Advanced <span class="muted-tag">optional</span></h2>
+        <p>Defaults work for most users. Skip unless you know you need these.</p>
         <form id="advanced-form">
           <label>
             <span>Consensus RPC</span>
@@ -156,15 +140,8 @@
               placeholder="https://lodestar-mainnet.chainsafe.io"
             />
             <small>
-              Default is
-              <code>https://lodestar-mainnet.chainsafe.io</code>
-              (HTTPS end-to-end, correctly honors <code>count</code> on the
-              <code>/eth/v1/beacon/light_client/updates</code> endpoint — a
-              requirement for Helios fresh-checkpoint sync). Most public
-              beacon APIs either don't expose light-client endpoints or
-              return stray old-period updates that break Helios — stick with
-              the default unless you have a good reason. Click a chip to
-              apply:
+              Default: <code>lodestar-mainnet.chainsafe.io</code>. Most public
+              beacon APIs break Helios sync — stick with the default.
               <span class="chips" id="consensus-chips"></span>
             </small>
           </label>
@@ -173,24 +150,21 @@
             <input
               type="text"
               name="checkpoint"
-              placeholder="0x… (leave empty to auto-fetch finalized)"
+              placeholder="0x… (leave empty to auto-fetch)"
               pattern="^(0x)?[0-9a-fA-F]{64}$"
             />
             <small>
-              Leave empty: the extension fetches a fresh finalized-block root
-              from the consensus RPC on each cold start (recommended). Paste a
-              specific hash only if you want to pin a known checkpoint, e.g.
-              from
+              Leave empty to auto-fetch finalized (recommended). Pin a hash from
               <a
                 href="https://sync-mainnet.beaconcha.in"
                 target="_blank"
                 rel="noopener"
                 >sync-mainnet.beaconcha.in</a
-              >.
+              >
+              if you need a known checkpoint.
             </small>
           </label>
           <div class="actions">
-            <button id="adv-back" type="button">← Back</button>
             <button type="submit" class="primary">Save &amp; Continue →</button>
           </div>
         </form>
@@ -198,17 +172,16 @@
 
       <!-- Step 4: Sync -->
       <section class="step-panel" data-step="4" hidden>
-        <h2>Step 4 — Bootstrap Helios</h2>
-        <p>
-          The light client is starting up. On a cold start it needs to fetch a
-          recent checkpoint and catch up to head. This usually takes &lt;30s.
-        </p>
+        <div class="step-nav-top">
+          <button id="sync-back" type="button" class="back-btn">← Back</button>
+        </div>
+        <h2>Starting Helios</h2>
+        <p>Fetching checkpoint and catching up to head — usually &lt;30s.</p>
         <div class="statusbox">
           <span class="dot" id="helios-dot"></span>
           <span id="helios-status-text">waiting…</span>
         </div>
         <div class="actions">
-          <button id="sync-back" type="button">← Change settings</button>
           <button id="finish" type="button" class="primary" disabled>
             Finish setup
           </button>

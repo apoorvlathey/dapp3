@@ -2,16 +2,27 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>local-eth-limo settings</title>
+    <title>local-eth-limo · settings</title>
     <link rel="stylesheet" href="./options.css" />
   </head>
   <body>
     <main>
-      <h1>local-eth-limo</h1>
-      <p class="sub">Local-first ENS gateway.</p>
+      <div class="page-head">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981"/>
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
+          </svg>
+        </span>
+        <h1>local-eth-limo</h1>
+      </div>
+      <p class="sub">Local-first ENS gateway. Mainnet only.</p>
 
       <section>
-        <h2>Ethereum RPC endpoints</h2>
+        <div class="section-head">
+          <h2>Ethereum RPC endpoints</h2>
+          <span class="section-label">EXECUTION LAYER</span>
+        </div>
         <p class="hint">
           The <em>first</em> RPC is what Helios uses to fetch execution-layer
           state (verified against the consensus-committed state root). Helios
@@ -30,10 +41,19 @@
       </section>
 
       <section>
-        <h2>Helios</h2>
-        <ul>
-          <li>Consensus RPC: <code id="consensus-rpc">(default)</code></li>
-          <li>Status: <code id="helios-live">loading…</code></li>
+        <div class="section-head">
+          <h2>Helios light client</h2>
+          <span class="section-label">CONSENSUS</span>
+        </div>
+        <ul class="kv">
+          <li>
+            <span class="k">Consensus RPC</span>
+            <span class="v" id="consensus-rpc">(default)</span>
+          </li>
+          <li>
+            <span class="k">Status</span>
+            <span class="v" id="helios-live">loading…</span>
+          </li>
         </ul>
       </section>
     </main>

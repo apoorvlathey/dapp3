@@ -7,18 +7,44 @@
   </head>
   <body>
     <main>
-      <h1>local-eth-limo</h1>
-      <section class="row">
-        <span class="label">IPFS node</span>
-        <span id="ipfs-status" class="status">checking…</span>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981"/>
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-title">local-eth-limo</span>
+          <span class="brand-subtitle">Local ENS gateway</span>
+        </span>
+      </div>
+
+      <section class="card">
+        <div class="row">
+          <span class="label">IPFS node</span>
+          <span class="status">
+            <span class="dot" id="ipfs-dot"></span>
+            <span id="ipfs-status">checking…</span>
+          </span>
+        </div>
+        <div class="row">
+          <span class="label">Helios</span>
+          <span class="status">
+            <span class="dot" id="helios-dot"></span>
+            <span id="helios-status">unknown</span>
+          </span>
+        </div>
       </section>
-      <section class="row">
-        <span class="label">Helios</span>
-        <span id="helios-status" class="status">not yet wired (M3)</span>
-      </section>
-      <section class="row">
-        <button id="open-options">Open settings</button>
-      </section>
+
+      <div class="error-card" id="helios-error-card" hidden>
+        <div class="error-card-label">Helios error</div>
+        <pre id="helios-error-detail"></pre>
+      </div>
+
+      <div class="actions">
+        <button id="open-options" class="primary">Open settings</button>
+      </div>
     </main>
     <script type="module" src="./popup.ts"></script>
   </body>
