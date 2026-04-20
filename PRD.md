@@ -16,7 +16,6 @@ The public `.eth.limo` DNS was hijacked, breaking the trust model of a centraliz
 ## 3. Non-Goals (v1)
 
 - No support for CCIP-read / offchain resolvers (ERC-3668). Names like `cb.id` that depend on offchain gateways are out of scope. To be revisited.
-- No support for ENS subdomains beyond the first level. v1 handles `name.eth` only.
 - No public IPFS gateway fallback. Users must run IPFS Desktop (or a Kubo node) locally. This is a deliberate choice to keep the trust model end-to-end local-first.
 - No Firefox / Safari port in v1. Chromium (MV3) only.
 - No support for chains other than Ethereum mainnet.
@@ -263,6 +262,5 @@ M1–M5 are landed. `pnpm build` and `pnpm typecheck` are both clean. Final bund
 - In-extension checkpoint fetching against a configurable source (`sync-mainnet.beaconcha.in` default).
 - Offscreen keep-alive port to survive SW restarts without losing sync state.
 - CCIP-read (ERC-3668) support — likely gated on Helios exposing `ccipRead` hooks.
-- ENS subdomains beyond first level.
 - Telemetry (opt-in) for sync/resolution failure rates.
 - Firefox / Safari ports.
