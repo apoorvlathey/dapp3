@@ -71,6 +71,7 @@ export default defineManifest({
         "src/interstitial/interstitial.html",
         "src/offscreen/offscreen.html",
         "src/onboarding/onboarding.html",
+        "src/bookmarks/bookmarks.html",
       ],
       matches: ["<all_urls>"],
     },

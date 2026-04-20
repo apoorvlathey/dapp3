@@ -110,5 +110,12 @@ document.getElementById("open-options")?.addEventListener("click", async () => {
   window.close();
 });
 
+document.getElementById("open-bookmarks")?.addEventListener("click", async () => {
+  await chrome.tabs.create({
+    url: chrome.runtime.getURL("src/bookmarks/bookmarks.html"),
+  });
+  window.close();
+});
+
 probeIpfs();
 pollHelios();

@@ -26,6 +26,7 @@ export default defineConfig({
         interstitial: "src/interstitial/interstitial.html",
         offscreen: "src/offscreen/offscreen.html",
         onboarding: "src/onboarding/onboarding.html",
+        bookmarks: "src/bookmarks/bookmarks.html",
       },
       output: {
         chunkFileNames: "assets/chunk-[hash].js",

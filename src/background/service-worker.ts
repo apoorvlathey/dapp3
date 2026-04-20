@@ -473,6 +473,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === "open-bookmarks") {
+    (async () => {
+      await chrome.tabs.create({
+        url: chrome.runtime.getURL("src/bookmarks/bookmarks.html"),
+      });
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
   if (msg?.type === "open-options") {
     (async () => {
       const s = await getSettings();

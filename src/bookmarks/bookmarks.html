@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Bookmarks · dapp3</title>
+    <link rel="stylesheet" href="./bookmarks.css" />
+  </head>
+  <body>
+    <main>
+      <div class="page-head">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981" />
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669" />
+          </svg>
+        </span>
+        <h1>Bookmarks</h1>
+      </div>
+      <p class="sub">Your favorite dapps. Click a card to visit.</p>
+
+      <div class="search-wrap">
+        <svg class="magnifier" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5"/>
+          <path d="M10.5 10.5 L14 14"/>
+        </svg>
+        <input
+          id="search"
+          type="text"
+          placeholder="Search by name, title, or description…"
+          autofocus
+          spellcheck="false"
+        />
+      </div>
+
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty" hidden>
+        No bookmarks yet. Star a site from the banner to save it here.
+      </div>
+      <div id="no-match" class="empty" hidden>
+        No bookmarks match your search.
+      </div>
+    </main>
+    <script type="module" src="./bookmarks.ts"></script>
+  </body>
+</html>

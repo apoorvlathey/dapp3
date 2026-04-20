@@ -1,6 +1,14 @@
 import type { ContentUpdatedMessage, TabContext } from "@/lib/messaging";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { setupAddressField, type AddressField } from "@/lib/url-field";
+import {
+  addBookmark,
+  isBookmarked,
+  normalizePath,
+  onBookmarksChanged,
+  removeBookmark,
+  type Bookmark,
+} from "@/lib/bookmarks";
 
 const BANNER_ID = "dapp3-banner";
 const HEIGHT_PX = 44;
@@ -90,6 +98,8 @@ type Refs = {
   stateText: HTMLSpanElement;
   urlForm: HTMLElement;
   urlInput: HTMLElement;
+  starBtn: HTMLButtonElement;
+  bookmarksBtn: HTMLButtonElement;
   menuBtn: HTMLButtonElement;
   menu: HTMLDivElement;
   copyItem: HTMLButtonElement;
@@ -220,6 +230,17 @@ function buildBanner(): Refs {
     .identity .urlfield *::selection {
       background: rgba(16, 185, 129, 0.3); color: #a7f3d0;
     }
+    .star-btn {
+      all: unset;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 4px;
+      color: #71717a; cursor: pointer; flex: none;
+      transition: color 150ms, background-color 150ms;
+    }
+    .star-btn:hover { background: #27272a; color: #e4e4e7; }
+    .star-btn svg { width: 14px; height: 14px; display: block; }
+    .star-btn.favorited { color: #fbbf24; }
+    .star-btn.favorited:hover { color: #fcd34d; }
     .identity:has(.urlfield.shake) { border-color: #f43f5e; }
     .urlfield.shake { animation: shake 0.4s ease; }
     @keyframes shake {
@@ -237,6 +258,15 @@ function buildBanner(): Refs {
       transition: background-color 150ms, color 150ms;
     }
     .menu-btn:hover { background: #27272a; color: #f4f4f5; }
+    .bookmarks-btn {
+      all: unset;
+      display: inline-flex; align-items: center;
+      height: 22px; padding: 0 10px; border-radius: 4px;
+      color: #a1a1aa; cursor: pointer;
+      font: 500 11px/1 inherit;
+      transition: background-color 150ms, color 150ms;
+    }
+    .bookmarks-btn:hover { background: #27272a; color: #f4f4f5; }
     .menu {
       position: absolute; top: calc(100% + 4px); right: 0;
       display: none; min-width: 220px;
@@ -327,9 +357,15 @@ function buildBanner(): Refs {
         <path d="M10.5 10.5 L14 14"/>
       </svg>
       <div class="urlfield"></div>
+      <button class="star-btn" type="button" aria-label="favorite" title="Favorite this site">
+        <svg class="star-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+      </button>
     </div>
     <span class="right">
       <span class="toast">copied</span>
+      <button class="bookmarks-btn" type="button" title="All Bookmarks">All Bookmarks</button>
       <span class="menu-wrap">
         <button class="menu-btn" type="button" aria-label="banner menu" title="Banner options">⋯</button>
         <div class="menu" role="menu">
@@ -368,6 +404,8 @@ function buildBanner(): Refs {
     stateText: q<HTMLSpanElement>(".statelabel"),
     urlForm: q<HTMLElement>(".identity"),
     urlInput: q<HTMLElement>(".urlfield"),
+    starBtn: q<HTMLButtonElement>(".star-btn"),
+    bookmarksBtn: q<HTMLButtonElement>(".bookmarks-btn"),
     menuBtn: q<HTMLButtonElement>(".menu-btn"),
     menu: q<HTMLDivElement>(".menu"),
     copyItem: q<HTMLButtonElement>('button[data-act="copy"]'),
@@ -423,6 +461,109 @@ function wireSpaNav(onChange: () => void) {
   window.addEventListener("hashchange", onChange);
 }
 
+function scrapePageMetadata(): {
+  title?: string;
+  favicon?: string;
+  description?: string;
+} {
+  const title = document.title?.trim() || undefined;
+
+  // Prefer explicit rel="icon" variants over the implicit /favicon.ico fallback
+  // so sites that do set a proper icon get it captured, not a 404.
+  const iconSelectors = [
+    'link[rel~="icon"]',
+    'link[rel="shortcut icon"]',
+    'link[rel="apple-touch-icon"]',
+    'link[rel="apple-touch-icon-precomposed"]',
+  ];
+  let favicon: string | undefined;
+  for (const sel of iconSelectors) {
+    const el = document.querySelector(sel) as HTMLLinkElement | null;
+    const href = el?.getAttribute("href");
+    if (href) {
+      try {
+        favicon = new URL(href, location.href).toString();
+        break;
+      } catch {
+        // malformed href; skip
+      }
+    }
+  }
+
+  const ogDesc = document
+    .querySelector('meta[property="og:description"]')
+    ?.getAttribute("content")
+    ?.trim();
+  const metaDesc = document
+    .querySelector('meta[name="description"]')
+    ?.getAttribute("content")
+    ?.trim();
+  const description = ogDesc || metaDesc || undefined;
+
+  return { title, favicon, description };
+}
+
+function applyStarState(refs: Refs, favorited: boolean) {
+  if (favorited) {
+    refs.starBtn.classList.add("favorited");
+    refs.starBtn.setAttribute("title", "Remove from favorites");
+    refs.starBtn.setAttribute("aria-pressed", "true");
+    const svg = refs.starBtn.querySelector("svg");
+    svg?.setAttribute("fill", "currentColor");
+  } else {
+    refs.starBtn.classList.remove("favorited");
+    refs.starBtn.setAttribute("title", "Favorite this site");
+    refs.starBtn.setAttribute("aria-pressed", "false");
+    const svg = refs.starBtn.querySelector("svg");
+    svg?.setAttribute("fill", "none");
+  }
+}
+
+function wireStar(refs: Refs, ctx: TabContext) {
+  const name = ctx.ensName.toLowerCase();
+  // Bookmarks are keyed by `name + path`, so `vitalik.eth/page1` and
+  // `vitalik.eth/page2` stay distinct. The live path comes from location,
+  // so SPA navigations update which bookmark we're comparing against.
+  const livePath = () => normalizePath(currentPath() || "/");
+
+  const refresh = async () => {
+    const fav = await isBookmarked(name, livePath());
+    applyStarState(refs, fav);
+  };
+  refresh();
+
+  refs.starBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const path = livePath();
+    const favorited = refs.starBtn.classList.contains("favorited");
+    if (favorited) {
+      await removeBookmark(name, path);
+    } else {
+      const meta = scrapePageMetadata();
+      const entry: Bookmark = {
+        ensName: name,
+        path,
+        title: meta.title,
+        favicon: meta.favicon,
+        description: meta.description,
+        addedAt: Date.now(),
+      };
+      await addBookmark(entry);
+    }
+  });
+
+  // Keep the star in sync if the user toggles from another tab, the
+  // bookmarks page, or SPA-navigates to a different in-site URL.
+  onBookmarksChanged((list) => {
+    const path = livePath();
+    const fav = list.some((b) => b.ensName === name && b.path === path);
+    applyStarState(refs, fav);
+  });
+  wireSpaNav(() => {
+    refresh();
+  });
+}
+
 function wireMenu(refs: Refs, ctx: TabContext) {
   const close = () => refs.menu.classList.remove("open");
   refs.menuBtn.addEventListener("click", (e) => {
@@ -471,6 +612,14 @@ function wireMenu(refs: Refs, ctx: TabContext) {
       // interception is on, DNR will yank this right back to local; that's
       // a degraded UX but better than a dead menu item.
       location.assign(url);
+    });
+  });
+
+  refs.bookmarksBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    close();
+    chrome.runtime.sendMessage({ type: "open-bookmarks" }).catch(() => {
+      // best-effort; the SW might not handle it, that's fine
     });
   });
 
@@ -540,6 +689,7 @@ async function mount(ctx: TabContext) {
 
   wireSpaNav(render);
   wireMenu(refs, ctx);
+  wireStar(refs, ctx);
 
   let pendingUpdateUrl: string | null = null;
   const showUpdateStrip = (gatewayUrl: string) => {
