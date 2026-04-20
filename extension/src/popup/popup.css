@@ -66,7 +66,9 @@ main {
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.01em;
+  text-decoration: none;
 }
+.brand-title:hover { text-decoration: underline; }
 
 .brand-subtitle {
   font-size: 10px;
@@ -215,4 +217,24 @@ button.primary:hover {
   letter-spacing: 0.08em;
   text-align: center;
   padding: 2px 0 0;
+}
+
+.built-by {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+
+.built-by a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.built-by a:hover {
+  color: var(--brand-500);
+  text-decoration: underline;
 }

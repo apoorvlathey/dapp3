@@ -6,16 +6,19 @@
     <link rel="stylesheet" href="./src/bookmarks/bookmarks.css" />
   </head>
   <body>
-    <main>
-      <div class="page-head">
+    <header class="topbar">
+      <a class="brand-row" href="http://dapp3.eth.link" target="_blank" rel="noopener">
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
             <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981" />
             <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669" />
           </svg>
         </span>
-        <h1>Bookmarks</h1>
-      </div>
+        <span class="brand-name">dapp3.eth</span>
+      </a>
+    </header>
+    <main>
+      <h1>Bookmarks</h1>
       <p class="sub">Your favorite dapps. Click a card to visit.</p>
 
       <div class="search-wrap">
@@ -40,6 +43,10 @@
         No bookmarks match your search.
       </div>
     </main>
+    <footer class="built-by">
+      Built by
+      <a href="https://apoorv.eth.link" target="_blank" rel="noopener">apoorv.eth</a>
+    </footer>
     <script type="module" src="./src/bookmarks/bookmarks.ts"></script>
   </body>
 </html>

@@ -850,6 +850,18 @@ main {
 
 .footer-nav a:hover { color: var(--text-primary); }
 
+.footer-credit {
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.footer-credit a {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.footer-credit a:hover { color: var(--brand-500); }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 820px) {
   .step-list,

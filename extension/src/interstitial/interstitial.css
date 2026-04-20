@@ -399,3 +399,27 @@ a.stage-fallback:hover {
   border-color: var(--amber-400);
   color: var(--text-primary);
 }
+
+.built-by {
+  position: fixed;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.built-by a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 500;
+  pointer-events: auto;
+}
+
+.built-by a:hover {
+  color: var(--brand-500);
+  text-decoration: underline;
+}
