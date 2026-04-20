@@ -33,6 +33,18 @@ const fallbackUrl = buildEthLimoFallback();
 if (fallbackUrl) {
   fallbackLink.href = fallbackUrl;
   fallbackEl.hidden = false;
+  // Route through the SW so it installs the per-tab ALLOW override *before*
+  // the navigation fires. Without it, the eth.limo DNR rule (if interception
+  // is on) would yank the request straight back into our resolver — which is
+  // exactly what the user is trying to bail out of.
+  fallbackLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    chrome.runtime
+      .sendMessage({ type: "open-on-eth-limo", url: fallbackUrl })
+      .catch(() => {
+        location.assign(fallbackUrl);
+      });
+  });
 }
 
 // Mirror the banner's parser: any `.eth` name (incl. subdomains), preserves path/query/hash.
