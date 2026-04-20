@@ -13,7 +13,7 @@ const inputEl = document.getElementById("urlinput") as HTMLDivElement;
 reasonEl.textContent = reason;
 document.title = ensName
   ? `${ensName} · resolution failed`
-  : "dapp3 · resolution failed";
+  : "dapp3.eth · resolution failed";
 
 // Build the public-gateway fallback URL mechanically: any `<name>.eth` is
 // served at `<name>.eth.limo`. Skip if we don't have a usable .eth name to

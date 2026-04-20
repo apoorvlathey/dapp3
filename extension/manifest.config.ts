@@ -3,7 +3,7 @@ import pkg from "./package.json" with { type: "json" };
 
 export default defineManifest({
   manifest_version: 3,
-  name: "dapp3",
+  name: "dapp3.eth",
   version: pkg.version,
   description: pkg.description,
   minimum_chrome_version: "116",
@@ -15,7 +15,7 @@ export default defineManifest({
   },
   action: {
     default_popup: "popup.html",
-    default_title: "dapp3",
+    default_title: "dapp3.eth",
     default_icon: {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
