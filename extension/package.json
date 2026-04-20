@@ -8,7 +8,11 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "zip": "pnpm build && mkdir -p zip && rm -f zip/dapp3-v$(node -p \"require('./package.json').version\").zip && cd dist && zip -r ../zip/dapp3-v$(node -p \"require('../package.json').version\").zip . -x '_metadata/*'",
+    "release:patch": "bash scripts/release.sh patch",
+    "release:minor": "bash scripts/release.sh minor",
+    "release:major": "bash scripts/release.sh major"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.28",
