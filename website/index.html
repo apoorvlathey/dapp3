@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>dapp3.eth · resolve .eth domains, verified locally</title>
+    <meta
+      name="description"
+      content="A browser extension that resolves .eth names directly against Ethereum state via a local light client, and serves content from your own IPFS node. No gateway. No trust."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="#top">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981" />
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669" />
+          </svg>
+        </span>
+        <span class="site-brand-name">dapp3.eth</span>
+      </a>
+      <nav class="site-nav">
+        <a href="#how">How it works</a>
+        <a class="nav-cta" href="#install">Install</a>
+        <a
+          href="https://github.com/apoorvlathey/dapp3"
+          target="_blank"
+          rel="noopener"
+          >GitHub</a
+        >
+      </nav>
+    </header>
+
+    <main id="top">
+      <!-- Hero -->
+      <section class="hero">
+        <div class="hero-orb hero-orb-left" aria-hidden="true"></div>
+        <div class="hero-orb hero-orb-right" aria-hidden="true"></div>
+        <span class="eyebrow">Uses IPFS Desktop + Helios Lightclient</span>
+        <h1>
+          Open <code>.eth</code> websites like any other,
+          <span class="accent">verified locally</span>.
+        </h1>
+        <p class="lede">
+          A browser extension that resolves ENS names directly against Ethereum
+          state via a light client, and serves the content from your own IPFS
+          node. No public gateway. Nothing to trust in the middle.
+        </p>
+        <div class="hero-actions">
+          <a class="btn primary" href="#install">Install extension</a>
+          <a
+            class="btn ghost"
+            href="https://github.com/apoorvlathey/dapp3"
+            target="_blank"
+            rel="noopener"
+            >View source →</a
+          >
+        </div>
+
+        <!-- Address-bar mock -->
+        <div class="addrbar" aria-hidden="true">
+          <span class="addrbar-dots">
+            <span></span><span></span><span></span>
+          </span>
+          <span class="addrbar-url">
+            <span class="addrbar-scheme">https://</span>vitalik<span
+              class="addrbar-tld"
+              >.eth</span
+            >
+          </span>
+          <span class="addrbar-badge"
+            ><span class="dot ok"></span>verified</span
+          >
+        </div>
+      </section>
+
+      <!-- Why -->
+      <section class="band">
+        <div class="band-inner">
+          <div class="band-copy">
+            <span class="section-kicker">Why this exists</span>
+            <h2 class="band-title">The trust boundary belongs on your machine.</h2>
+            <p class="band-body">
+              Typing <code>name.eth</code> in a browser usually meant trusting a
+              gateway like <code>eth.limo</code>. That was always the wrong trust
+              model.
+            </p>
+            <p class="band-body">
+              dapp3 resolves ENS on your machine, verifies it with a Helios light
+              client, and loads content from your own local IPFS node. No
+              gateway. No shared DNS. No middleman.
+            </p>
+          </div>
+          <div class="trust-panel" aria-hidden="true">
+            <div class="trust-panel-head">
+              <span class="trust-chip muted">Before</span>
+              <span class="trust-chip active">After dapp3</span>
+            </div>
+            <div class="trust-rows">
+              <div class="trust-row">
+                <span>DNS / gateway operator</span>
+                <strong>Removed</strong>
+              </div>
+              <div class="trust-row">
+                <span>ENS resolution</span>
+                <strong>Helios verified</strong>
+              </div>
+              <div class="trust-row">
+                <span>Site content</span>
+                <strong>Your local IPFS node</strong>
+              </div>
+              <div class="trust-row">
+                <span>Browser origin</span>
+                <strong>Per-CID isolated</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- How it works -->
+      <section id="how" class="how">
+        <div class="section-heading">
+          <span class="section-kicker">Flow</span>
+          <h2 class="section-title">How a <code>.eth</code> navigation works</h2>
+          <p class="section-sub">
+            Three local components. Everything the extension reads from the
+            network, it verifies.
+          </p>
+        </div>
+
+        <ol class="step-list">
+          <li class="step-card">
+            <div class="step-index">01</div>
+            <h3>Intercept</h3>
+            <p>
+              The service worker catches the navigation to <code>*.eth</code>
+              before Chrome issues DNS. The browser never asks a public
+              resolver where your ENS name points.
+            </p>
+          </li>
+          <li class="step-card">
+            <div class="step-index">02</div>
+            <h3>Resolve &amp; verify</h3>
+            <p>
+              A Helios light client, running inside an offscreen document,
+              reads the ENS resolver's <code>contenthash</code> via
+              <code>eth_call</code>. Every read is proof-checked against the
+              beacon chain. The RPC you point it at is never trusted.
+            </p>
+          </li>
+          <li class="step-card">
+            <div class="step-index">03</div>
+            <h3>Serve locally</h3>
+            <p>
+              The CID is loaded from your own Kubo node at
+              <code>&lt;cid&gt;.ipfs.localhost:8080</code>. Per-CID subdomains
+              give every site its own browser origin, so cookies and storage
+              stay isolated, just like on the public web.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <!-- Feature grid -->
+      <section class="features">
+        <div class="section-heading">
+          <span class="section-kicker">Benefits</span>
+          <h2 class="section-title">What you get</h2>
+          <p class="section-sub">
+            Security properties and browser ergonomics, without introducing a
+            new trusted middle layer.
+          </p>
+        </div>
+        <div class="feature-grid">
+          <div class="feature feature-wide">
+            <div class="feature-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M10 2 L3 6 V10 C3 14 6 17 10 18 C14 17 17 14 17 10 V6 Z" />
+                <path d="M7.5 10 L9.5 12 L13 8" />
+              </svg>
+            </div>
+            <h3>No trusted gateway</h3>
+            <p>
+              Nothing between you and Ethereum. State reads are verified
+              against the consensus-committed root by a light client on your
+              device.
+            </p>
+            <span class="feature-meta">Proof-checked at the edge</span>
+          </div>
+          <div class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3" y="3" width="14" height="14" rx="2" />
+                <path d="M3 10 H17" />
+                <path d="M10 3 V17" />
+              </svg>
+            </div>
+            <h3>Your IPFS node</h3>
+            <p>
+              Content loads from the Kubo / IPFS Desktop node you already run.
+              Nothing is ever fetched through a public gateway.
+            </p>
+            <span class="feature-meta">Content stays local</span>
+          </div>
+          <div class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="10" cy="10" r="7" />
+                <path d="M3 10 H17" />
+                <path d="M10 3 C12.5 6 12.5 14 10 17 C7.5 14 7.5 6 10 3 Z" />
+              </svg>
+            </div>
+            <h3>Origin isolation</h3>
+            <p>
+              Each site gets its own origin via CID-per-subdomain. Cookies,
+              <code>localStorage</code>, and service workers stay scoped to
+              one <code>.eth</code> site.
+            </p>
+            <span class="feature-meta">Browser primitives stay clean</span>
+          </div>
+          <div class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M4 10 L8 14 L16 6" />
+              </svg>
+            </div>
+            <h3>The real name, always</h3>
+            <p>
+              A minimal banner shows the ENS name you actually typed, even
+              though the tab's URL is pointed at <code>localhost</code>. No
+              spoofing surface.
+            </p>
+            <span class="feature-meta">Human-readable routing</span>
+          </div>
+          <div class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M10 3 V10 L14 12" />
+                <circle cx="10" cy="10" r="7" />
+              </svg>
+            </div>
+            <h3>Bring your own RPC</h3>
+            <p>
+              Point it at any mainnet RPC: Alchemy, Infura, your own node,
+              whatever. Health is tracked per endpoint and you can swap at any
+              time.
+            </p>
+            <span class="feature-meta">Provider-agnostic by design</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Install -->
+      <section id="install" class="install">
+        <div class="install-card">
+          <div class="install-copy">
+            <span class="section-kicker">Install</span>
+            <h2>Install dapp3</h2>
+            <p class="install-sub">
+              You'll need IPFS Desktop (or <code>kubo</code>) running locally and
+              one Ethereum mainnet RPC URL. Onboarding walks you through both.
+            </p>
+          </div>
+
+          <div class="install-actions">
+            <a class="btn primary lg" href="#" aria-disabled="true">
+              Chrome Web Store · coming soon
+            </a>
+            <a
+              class="btn ghost lg"
+              href="https://github.com/apoorvlathey/dapp3"
+              target="_blank"
+              rel="noopener"
+            >
+              Build from source →
+            </a>
+          </div>
+
+          <div class="install-status" aria-hidden="true">
+            <div class="status-pill">
+              <span class="dot ok"></span>
+              Local-first setup
+            </div>
+            <div class="status-pill">
+              <span class="dot ok"></span>
+              Mainnet ready
+            </div>
+            <div class="status-pill">
+              <span class="dot ok"></span>
+              Browser extension
+            </div>
+          </div>
+
+          <ul class="install-reqs">
+            <li>
+              <span class="req-label">Browser</span>
+              <div class="req-content">
+                <p>Chromium-based (Chrome, Brave, Arc, Edge). MV3.</p>
+              </div>
+            </li>
+            <li>
+              <span class="req-label">IPFS</span>
+              <div class="req-content">
+                <p>
+                  <a
+                    href="https://docs.ipfs.eth.limo/install/ipfs-desktop/"
+                    target="_blank"
+                    rel="noopener"
+                    >IPFS Desktop</a
+                  >
+                  or Kubo running locally.
+                </p>
+                <div class="req-inline-code">Subdomain gateway enabled on <code>localhost</code></div>
+              </div>
+            </li>
+            <li>
+              <span class="req-label">RPC</span>
+              <div class="req-content">
+                <p>
+                  Any Ethereum mainnet RPC. It's never trusted. Helios verifies
+                  everything.
+                </p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span class="footer-brand">
+          <span class="brand-mark sm" aria-hidden="true">
+            <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+              <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981" />
+              <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669" />
+            </svg>
+          </span>
+          dapp3.eth
+        </span>
+        <nav class="footer-nav">
+          <a
+            href="https://github.com/apoorvlathey/dapp3"
+            target="_blank"
+            rel="noopener"
+            >GitHub</a
+          >
+          <a href="#how">How it works</a>
+          <a href="#install">Install</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
