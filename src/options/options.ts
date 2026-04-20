@@ -252,7 +252,7 @@ interceptToggle.addEventListener("change", async () => {
 (async () => {
   const s = await getSettings();
   if (!s.onboardingComplete && s.rpcUrls.length === 0) {
-    location.replace(chrome.runtime.getURL("src/onboarding/onboarding.html"));
+    location.replace(chrome.runtime.getURL("onboarding.html"));
     return;
   }
   cachedUrls = s.rpcUrls;

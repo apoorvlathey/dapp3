@@ -25,7 +25,7 @@ function errorPageUrl(
   search = "",
   hash = "",
 ): string {
-  const u = new URL(chrome.runtime.getURL("src/error/error.html"));
+  const u = new URL(chrome.runtime.getURL("error.html"));
   u.searchParams.set("name", name);
   u.searchParams.set("error", error);
   // Path/search/hash are needed so the eth.limo fallback link the error page
@@ -48,7 +48,7 @@ async function installEthRedirectRule() {
   // request*. That's why manifest.config.ts lists `*://*.eth/*` under
   // host_permissions. Without it this rule silently no-ops and Chrome's DNS
   // probe wins the race.
-  const interstitial = chrome.runtime.getURL("src/interstitial/interstitial.html");
+  const interstitial = chrome.runtime.getURL("interstitial.html");
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: [ETH_REDIRECT_RULE_ID],
     addRules: [
@@ -476,7 +476,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "open-bookmarks") {
     (async () => {
       await chrome.tabs.create({
-        url: chrome.runtime.getURL("src/bookmarks/bookmarks.html"),
+        url: chrome.runtime.getURL("bookmarks.html"),
       });
       sendResponse({ ok: true });
     })();
@@ -488,7 +488,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const s = await getSettings();
       if (!s.onboardingComplete && s.rpcUrls.length === 0) {
         await chrome.tabs.create({
-          url: chrome.runtime.getURL("src/onboarding/onboarding.html"),
+          url: chrome.runtime.getURL("onboarding.html"),
         });
       } else {
         await chrome.runtime.openOptionsPage();
@@ -518,7 +518,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     const s = await getSettings();
     if (!s.onboardingComplete) {
       await chrome.tabs.create({
-        url: chrome.runtime.getURL("src/onboarding/onboarding.html"),
+        url: chrome.runtime.getURL("onboarding.html"),
       });
     }
   }

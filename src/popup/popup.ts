@@ -104,15 +104,15 @@ document.getElementById("open-options")?.addEventListener("click", async () => {
   const s = await getSettings();
   const url =
     !s.onboardingComplete && s.rpcUrls.length === 0
-      ? chrome.runtime.getURL("src/onboarding/onboarding.html")
-      : chrome.runtime.getURL("src/options/options.html");
+      ? chrome.runtime.getURL("onboarding.html")
+      : chrome.runtime.getURL("options.html");
   await chrome.tabs.create({ url });
   window.close();
 });
 
 document.getElementById("open-bookmarks")?.addEventListener("click", async () => {
   await chrome.tabs.create({
-    url: chrome.runtime.getURL("src/bookmarks/bookmarks.html"),
+    url: chrome.runtime.getURL("bookmarks.html"),
   });
   window.close();
 });

@@ -261,7 +261,7 @@ finishBtn.addEventListener("click", async () => {
     onboardingComplete: true,
     interceptEthLimo: lastIpfsOk,
   });
-  const url = chrome.runtime.getURL("src/options/options.html");
+  const url = chrome.runtime.getURL("options.html");
   location.replace(url);
 });
 

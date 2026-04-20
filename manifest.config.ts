@@ -14,7 +14,7 @@ export default defineManifest({
     "128": "icons/icon-128.png",
   },
   action: {
-    default_popup: "src/popup/popup.html",
+    default_popup: "popup.html",
     default_title: "dapp3",
     default_icon: {
       "16": "icons/icon-16.png",
@@ -23,7 +23,7 @@ export default defineManifest({
       "128": "icons/icon-128.png",
     },
   },
-  options_page: "src/options/options.html",
+  options_page: "options.html",
   background: {
     service_worker: "src/background/service-worker.ts",
     type: "module",
@@ -67,11 +67,11 @@ export default defineManifest({
   web_accessible_resources: [
     {
       resources: [
-        "src/error/error.html",
-        "src/interstitial/interstitial.html",
-        "src/offscreen/offscreen.html",
-        "src/onboarding/onboarding.html",
-        "src/bookmarks/bookmarks.html",
+        "error.html",
+        "interstitial.html",
+        "offscreen.html",
+        "onboarding.html",
+        "bookmarks.html",
       ],
       matches: ["<all_urls>"],
     },

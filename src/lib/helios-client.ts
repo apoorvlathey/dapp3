@@ -7,7 +7,7 @@ import type {
 } from "@/lib/helios-bridge";
 import { getSettings } from "@/lib/settings";
 
-const OFFSCREEN_PATH = "src/offscreen/offscreen.html";
+const OFFSCREEN_PATH = "offscreen.html";
 
 let offscreenReady: Promise<void> | null = null;
 

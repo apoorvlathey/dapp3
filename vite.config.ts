@@ -22,11 +22,11 @@ export default defineConfig({
     modulePreload: false,
     rollupOptions: {
       input: {
-        error: "src/error/error.html",
-        interstitial: "src/interstitial/interstitial.html",
-        offscreen: "src/offscreen/offscreen.html",
-        onboarding: "src/onboarding/onboarding.html",
-        bookmarks: "src/bookmarks/bookmarks.html",
+        error: "error.html",
+        interstitial: "interstitial.html",
+        offscreen: "offscreen.html",
+        onboarding: "onboarding.html",
+        bookmarks: "bookmarks.html",
       },
       output: {
         chunkFileNames: "assets/chunk-[hash].js",
