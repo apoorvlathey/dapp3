@@ -117,5 +117,29 @@ document.getElementById("open-bookmarks")?.addEventListener("click", async () =>
   window.close();
 });
 
-probeIpfs();
-pollHelios();
+// Fallback path for the narrow race where the SW hasn't yet applied
+// `chrome.action.setPopup('')` after onboarding was reset (or on a fresh
+// install before the initial getSettings() resolves): bounce to onboarding
+// instead of showing a popup against an unconfigured extension.
+async function bootPopup() {
+  const s = await getSettings();
+  if (!s.onboardingComplete) {
+    const url = chrome.runtime.getURL("onboarding.html");
+    const existing = await chrome.tabs.query({ url });
+    const tab = existing[0];
+    if (tab?.id != null) {
+      await chrome.tabs.update(tab.id, { active: true });
+      if (tab.windowId != null) {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
+    } else {
+      await chrome.tabs.create({ url });
+    }
+    window.close();
+    return;
+  }
+  probeIpfs();
+  pollHelios();
+}
+
+bootPopup();

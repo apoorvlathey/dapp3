@@ -109,6 +109,41 @@ async function syncEthLimoRedirectRule(enabled: boolean) {
   });
 }
 
+// When onboarding isn't complete we unset the popup (`setPopup('')`) so that
+// clicking the toolbar icon fires `action.onClicked` instead of opening the
+// popup — the listener below then opens (or focuses) the onboarding tab. The
+// moment onboarding completes the popup is restored.
+async function syncActionPopup(onboardingComplete: boolean) {
+  try {
+    await chrome.action.setPopup({
+      popup: onboardingComplete ? "popup.html" : "",
+    });
+  } catch (e) {
+    console.warn("[dapp3] setPopup failed", e);
+  }
+}
+
+async function focusOrOpenOnboarding() {
+  const url = chrome.runtime.getURL("onboarding.html");
+  const existing = await chrome.tabs.query({ url });
+  const tab = existing[0];
+  if (tab?.id != null) {
+    await chrome.tabs.update(tab.id, { active: true });
+    if (tab.windowId != null) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+    return;
+  }
+  await chrome.tabs.create({ url });
+}
+
+// Only fires when `setPopup('')` is active — i.e. while onboarding is pending.
+chrome.action.onClicked.addListener(() => {
+  focusOrOpenOnboarding().catch((e) =>
+    console.warn("[dapp3] failed to open onboarding", e),
+  );
+});
+
 async function setEthLimoBypassTabs(tabIds: number[]) {
   if (tabIds.length === 0) {
     await chrome.declarativeNetRequest.updateSessionRules({
@@ -275,11 +310,12 @@ installEthRedirectRule().then(
   () => console.log("[dapp3] .eth DNR redirect rule installed"),
   (e) => console.warn("[dapp3] failed to install .eth DNR rule", e),
 );
-getSettings().then((s) =>
+getSettings().then((s) => {
   syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
     console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
-  ),
-);
+  );
+  syncActionPopup(!!s.onboardingComplete);
+});
 
 // DNR handles the *.eth → interstitial redirect synchronously at the network
 // layer, beating Chrome's DNS-failure page. This listener just pre-boots
@@ -506,11 +542,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   installEthRedirectRule().catch((e) => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
-  getSettings().then((s) =>
+  getSettings().then((s) => {
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
-    ),
-  );
+    );
+    syncActionPopup(!!s.onboardingComplete);
+  });
   getOrStartHelios().catch(() => {
     /* no RPC yet is fine */
   });
@@ -529,9 +566,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // Also keep the eth.limo DNR rule in sync with the user's preference.
 let activePrimaryRpc: string | undefined;
 let activeInterceptEthLimo: boolean | undefined;
+let activeOnboardingComplete: boolean | undefined;
 getSettings().then((s) => {
   activePrimaryRpc = s.rpcUrls[0];
   activeInterceptEthLimo = s.interceptEthLimo;
+  activeOnboardingComplete = !!s.onboardingComplete;
 });
 onSettingsChanged((s) => {
   const next = s.rpcUrls[0];
@@ -547,17 +586,23 @@ onSettingsChanged((s) => {
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
     );
   }
+  const onboarded = !!s.onboardingComplete;
+  if (onboarded !== activeOnboardingComplete) {
+    activeOnboardingComplete = onboarded;
+    syncActionPopup(onboarded);
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
   installEthRedirectRule().catch((e) => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
-  getSettings().then((s) =>
+  getSettings().then((s) => {
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
-    ),
-  );
+    );
+    syncActionPopup(!!s.onboardingComplete);
+  });
   getOrStartHelios().catch(() => {
     /* no RPC yet is fine */
   });
