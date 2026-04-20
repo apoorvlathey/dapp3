@@ -12,6 +12,11 @@ const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
 // public/rules/no_https_upgrade.json (which use 1, 2).
 const ETH_REDIRECT_RULE_ID = 1001;
 const ETH_LIMO_REDIRECT_RULE_ID = 1002;
+// Session-scoped ALLOW rule that punches through the eth.limo/link redirect
+// for specific tabs. Lets the banner's "Open on eth.limo" action reach the
+// public gateway even when interception is on. Session rules are evicted on
+// browser shutdown, so there's no cross-session leak.
+const ETH_LIMO_BYPASS_RULE_ID = 1003;
 
 function errorPageUrl(
   name: string,
@@ -102,6 +107,54 @@ async function syncEthLimoRedirectRule(enabled: boolean) {
       },
     ],
   });
+}
+
+async function setEthLimoBypassTabs(tabIds: number[]) {
+  if (tabIds.length === 0) {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [ETH_LIMO_BYPASS_RULE_ID],
+    });
+    return;
+  }
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [ETH_LIMO_BYPASS_RULE_ID],
+    addRules: [
+      {
+        id: ETH_LIMO_BYPASS_RULE_ID,
+        // Higher than both the .eth redirect (2) and the eth.limo redirect (1)
+        // so an eth.limo main_frame request on a bypassed tab wins the ALLOW
+        // and reaches the real public gateway.
+        priority: 3,
+        action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
+        condition: {
+          regexFilter:
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.(?:limo|link)(?::\\d+)?(/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+          tabIds,
+        },
+      },
+    ],
+  });
+}
+
+async function getEthLimoBypassTabs(): Promise<number[]> {
+  const rules = await chrome.declarativeNetRequest.getSessionRules();
+  const rule = rules.find((r) => r.id === ETH_LIMO_BYPASS_RULE_ID);
+  return (rule?.condition.tabIds as number[] | undefined) ?? [];
+}
+
+async function addEthLimoBypassForTab(tabId: number) {
+  const current = await getEthLimoBypassTabs();
+  if (current.includes(tabId)) return;
+  await setEthLimoBypassTabs([...current, tabId]);
+}
+
+async function removeEthLimoBypassForTab(tabId: number) {
+  const current = await getEthLimoBypassTabs();
+  if (!current.includes(tabId)) return;
+  await setEthLimoBypassTabs(current.filter((id) => id !== tabId));
 }
 
 async function resolveAndRedirect(
@@ -245,6 +298,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   await chrome.storage.session.remove(`tab:${tabId}`);
+  await removeEthLimoBypassForTab(tabId).catch(() => undefined);
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -392,6 +446,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       (status) => sendResponse({ ok: true, status }),
       (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
     );
+    return true;
+  }
+
+  if (msg?.type === "open-on-eth-limo" && typeof msg.url === "string") {
+    const tabId = sender.tab?.id;
+    const url = msg.url as string;
+    if (tabId == null) {
+      sendResponse({ ok: false, error: "no tabId" });
+      return false;
+    }
+    (async () => {
+      try {
+        // Install the per-tab ALLOW override *before* navigating so the DNR
+        // engine sees it in place by the time the main_frame request fires.
+        await addEthLimoBypassForTab(tabId);
+        await chrome.tabs.update(tabId, { url });
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    })();
     return true;
   }
 

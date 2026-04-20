@@ -93,6 +93,7 @@ type Refs = {
   menuBtn: HTMLButtonElement;
   menu: HTMLDivElement;
   copyItem: HTMLButtonElement;
+  ethLimoItem: HTMLButtonElement;
   settingsItem: HTMLButtonElement;
   copyToast: HTMLSpanElement;
   updateStrip: HTMLDivElement;
@@ -333,6 +334,7 @@ function buildBanner(): Refs {
         <button class="menu-btn" type="button" aria-label="banner menu" title="Banner options">⋯</button>
         <div class="menu" role="menu">
           <button data-act="copy" type="button">Copy underlying URL</button>
+          <button data-act="open-limo" type="button">Open on eth.limo gateway</button>
           <button data-act="settings" type="button">Open extension settings</button>
         </div>
       </span>
@@ -369,6 +371,7 @@ function buildBanner(): Refs {
     menuBtn: q<HTMLButtonElement>(".menu-btn"),
     menu: q<HTMLDivElement>(".menu"),
     copyItem: q<HTMLButtonElement>('button[data-act="copy"]'),
+    ethLimoItem: q<HTMLButtonElement>('button[data-act="open-limo"]'),
     settingsItem: q<HTMLButtonElement>('button[data-act="settings"]'),
     copyToast: q<HTMLSpanElement>(".toast"),
     updateStrip,
@@ -420,7 +423,7 @@ function wireSpaNav(onChange: () => void) {
   window.addEventListener("hashchange", onChange);
 }
 
-function wireMenu(refs: Refs) {
+function wireMenu(refs: Refs, ctx: TabContext) {
   const close = () => refs.menu.classList.remove("open");
   refs.menuBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -454,6 +457,21 @@ function wireMenu(refs: Refs) {
         ta.remove();
       }
     }
+  });
+
+  refs.ethLimoItem.addEventListener("click", () => {
+    close();
+    // `ensName` already ends in `.eth`, so `<ensName>.limo` yields the public
+    // gateway hostname. Preserve the live in-page path so deep links survive
+    // the handoff — the user may have navigated within a SPA since mount.
+    const p = currentPath() || "/";
+    const url = `https://${ctx.ensName}.limo${p.startsWith("/") ? p : `/${p}`}`;
+    chrome.runtime.sendMessage({ type: "open-on-eth-limo", url }).catch(() => {
+      // SW unreachable — fall back to a direct navigation. If eth.limo
+      // interception is on, DNR will yank this right back to local; that's
+      // a degraded UX but better than a dead menu item.
+      location.assign(url);
+    });
   });
 
   refs.settingsItem.addEventListener("click", () => {
@@ -521,7 +539,7 @@ async function mount(ctx: TabContext) {
   applyBodyOffset();
 
   wireSpaNav(render);
-  wireMenu(refs);
+  wireMenu(refs, ctx);
 
   let pendingUpdateUrl: string | null = null;
   const showUpdateStrip = (gatewayUrl: string) => {
