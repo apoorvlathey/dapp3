@@ -1,10 +1,10 @@
 import "@/lib/sw-dom-shim";
 import { resolveEns, getOrStartHelios, probeRpc } from "@/lib/resolver";
-import { buildSubdomainUrl } from "@/lib/gateway";
+import { buildSubdomainUrl, parseGatewayHost } from "@/lib/gateway";
 import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
 import type { ContentUpdatedMessage, TabContext } from "@/lib/messaging";
-import { getCached, setCached } from "@/lib/cache";
+import { findCachedByGatewayLabel, getCached, setCached } from "@/lib/cache";
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
 
@@ -254,9 +254,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ctx: null });
       return false;
     }
-    chrome.storage.session.get(`tab:${tabId}`).then((res) => {
-      sendResponse({ ctx: res[`tab:${tabId}`] ?? null });
-    });
+    (async () => {
+      const stored = (await chrome.storage.session.get(`tab:${tabId}`))[
+        `tab:${tabId}`
+      ] as TabContext | undefined;
+      if (stored) {
+        sendResponse({ ctx: stored });
+        return;
+      }
+      // No ctx from our resolve flow — user likely navigated straight to a
+      // gateway URL (bookmark, shared link, manually typed CID). Try to
+      // reverse-lookup the ENS name from the cache so the banner can still
+      // show the identity instead of staying invisible.
+      const senderUrl = sender.tab?.url ?? sender.url;
+      if (!senderUrl) {
+        sendResponse({ ctx: null });
+        return;
+      }
+      let u: URL;
+      try {
+        u = new URL(senderUrl);
+      } catch {
+        sendResponse({ ctx: null });
+        return;
+      }
+      const parsed = parseGatewayHost(u.hostname);
+      if (!parsed) {
+        sendResponse({ ctx: null });
+        return;
+      }
+      const hit = await findCachedByGatewayLabel(
+        parsed.kind,
+        parsed.label,
+      ).catch(() => null);
+      if (!hit) {
+        sendResponse({ ctx: null });
+        return;
+      }
+      const ctx: TabContext = {
+        ensName: hit.ensName,
+        kind: hit.kind,
+        value: hit.value,
+        path: u.pathname + u.search + u.hash,
+        trustedDirectly: false,
+      };
+      sendResponse({ ctx });
+    })();
     return true;
   }
 
