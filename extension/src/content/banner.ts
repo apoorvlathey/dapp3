@@ -105,6 +105,7 @@ type Refs = {
   menu: HTMLDivElement;
   copyItem: HTMLButtonElement;
   ethLimoItem: HTMLButtonElement;
+  hideItem: HTMLButtonElement;
   settingsItem: HTMLButtonElement;
   copyToast: HTMLSpanElement;
   updateStrip: HTMLDivElement;
@@ -281,13 +282,20 @@ function buildBanner(): Refs {
     .menu.open { display: block; }
     .menu button {
       all: unset;
-      display: block; width: 100%; box-sizing: border-box;
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; box-sizing: border-box;
       padding: 7px 10px; border-radius: 4px;
       font: 500 12px/1.3 inherit; color: #e4e4e7; cursor: pointer;
       text-align: left;
       transition: background-color 150ms, color 150ms;
     }
     .menu button:hover { background: #27272a; color: #f4f4f5; }
+    .menu button svg {
+      width: 14px; height: 14px; flex: none; display: block;
+      color: #a1a1aa;
+      transition: color 150ms;
+    }
+    .menu button:hover svg { color: #e4e4e7; }
     .toast {
       display: none;
       color: #6ee7b7; font-weight: 500;
@@ -374,9 +382,35 @@ function buildBanner(): Refs {
       <span class="menu-wrap">
         <button class="menu-btn" type="button" aria-label="banner menu" title="Banner options">⋯</button>
         <div class="menu" role="menu">
-          <button data-act="copy" type="button">Copy underlying URL</button>
-          <button data-act="open-limo" type="button">Open on eth.limo gateway</button>
-          <button data-act="settings" type="button">Open extension settings</button>
+          <button data-act="copy" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <span>Copy underlying URL</span>
+          </button>
+          <button data-act="open-limo" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+            <span>Open on eth.limo gateway</span>
+          </button>
+          <button data-act="hide" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+            <span>Hide banner for this session</span>
+          </button>
+          <button data-act="settings" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span>Open extension settings</span>
+          </button>
         </div>
       </span>
     </span>
@@ -416,6 +450,7 @@ function buildBanner(): Refs {
     menu: q<HTMLDivElement>(".menu"),
     copyItem: q<HTMLButtonElement>('button[data-act="copy"]'),
     ethLimoItem: q<HTMLButtonElement>('button[data-act="open-limo"]'),
+    hideItem: q<HTMLButtonElement>('button[data-act="hide"]'),
     settingsItem: q<HTMLButtonElement>('button[data-act="settings"]'),
     copyToast: q<HTMLSpanElement>(".toast"),
     updateStrip,
@@ -431,11 +466,11 @@ function applyBodyOffset(target = HEIGHT_PX) {
     document.body.style.marginTop = `${Math.max(cur, target)}px`;
     // NOTE: do NOT set transform on <body> to "contain" page-level fixed
     // headers. A transform on <body> makes it the containing block for *all*
-    // position:fixed descendants — which breaks dapp wallet-connect modals
+    // position:fixed descendants, which breaks dapp wallet-connect modals
     // (RainbowKit, ConnectKit, Web3Modal) that expect viewport anchoring and
-    // end up clipped by the 44px body offset. The page's own fixed navs may
-    // overlap our banner's 44px; the banner has max z-index so it's still on
-    // top, and that overlap is a much smaller UX hit than broken modals.
+    // end up clipped by the body offset. We handle viewport-anchored navs
+    // with a per-element shifter (setupFixedNavOffset) instead, which uses
+    // a size heuristic to skip modal overlays.
     return true;
   };
   if (apply()) return;
@@ -447,6 +482,143 @@ function applyBodyOffset(target = HEIGHT_PX) {
     if (apply()) obs.disconnect();
   });
   obs.observe(document.documentElement, { childList: true });
+}
+
+// Shift the site's own top-anchored nav bars down by the banner height so they
+// aren't hidden underneath us. Body margin-top (applyBodyOffset) handles static
+// content but does nothing for position:fixed / position:sticky elements that
+// anchor to the viewport's top:0 — this walks those out of the way.
+//
+// Heuristic to distinguish a navbar from a modal overlay (since we can't shift
+// modals without breaking them):
+//   - position: fixed or sticky
+//   - computed top in [-4, 8]px (close enough to the viewport top)
+//   - width ≥ 50% viewport (navbars span the page; drawers/toasts don't)
+//   - height ≤ 70% viewport (modals are full-height; navbars are strips)
+//
+// The manager is re-entrant: setHeight() updates all already-shifted elements,
+// so toggling the update strip (44 → 76px) doesn't require a re-scan.
+type FixedNavOffsetMgr = {
+  setHeight: (px: number) => void;
+  teardown: () => void;
+};
+
+function setupFixedNavOffset(): FixedNavOffsetMgr {
+  const SHIFTED_ATTR = "data-dapp3-shifted";
+  const ORIG_TOP_ATTR = "data-dapp3-original-top";
+  let currentOffset = 0;
+  let scanPending = false;
+
+  const candidateTop = (el: HTMLElement, vw: number, vh: number): number | null => {
+    if (el.id === BANNER_ID) return null;
+    if (el === document.body || el === document.documentElement) return null;
+
+    const cs = getComputedStyle(el);
+    if (cs.position !== "fixed" && cs.position !== "sticky") return null;
+
+    const topPx = parseFloat(cs.top);
+    if (!Number.isFinite(topPx)) return null;
+    if (topPx < -4 || topPx > 8) return null;
+
+    const rect = el.getBoundingClientRect();
+    if (rect.height <= 0 || rect.width <= 0) return null;
+    // Modal-size guard: anything near viewport-height is almost certainly an
+    // overlay/backdrop, not a navbar. Shifting those would break the overlay.
+    if (rect.height / vh > 0.7) return null;
+    // Narrow elements (drawers, toasts, FABs) don't belong to the top strip.
+    if (rect.width / vw < 0.5) return null;
+
+    return topPx;
+  };
+
+  const scan = () => {
+    if (!document.body) return;
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const all = document.body.getElementsByTagName("*");
+    for (let i = 0; i < all.length; i++) {
+      const el = all[i] as HTMLElement;
+      if (el.hasAttribute(SHIFTED_ATTR)) continue;
+      const topPx = candidateTop(el, vw, vh);
+      if (topPx === null) continue;
+      el.setAttribute(ORIG_TOP_ATTR, String(topPx));
+      el.setAttribute(SHIFTED_ATTR, "");
+      el.style.setProperty("top", `${topPx + currentOffset}px`, "important");
+    }
+  };
+
+  const scheduleScan = () => {
+    if (scanPending) return;
+    scanPending = true;
+    requestAnimationFrame(() => {
+      scanPending = false;
+      scan();
+    });
+  };
+
+  const reapplyOffsets = () => {
+    const list = document.querySelectorAll<HTMLElement>(`[${SHIFTED_ATTR}]`);
+    list.forEach((el) => {
+      const orig = parseFloat(el.getAttribute(ORIG_TOP_ATTR) || "0");
+      el.style.setProperty("top", `${orig + currentOffset}px`, "important");
+    });
+  };
+
+  let obs: MutationObserver | null = null;
+  let bodyWaiter: MutationObserver | null = null;
+  let tornDown = false;
+
+  const start = () => {
+    // Subtree + childList catches late-rendered navs (SPA hydration, portals).
+    // We also watch `class` because many nav components toggle a "scrolled"
+    // class that flips position:relative → position:fixed. rAF coalescing
+    // keeps the scan cost bounded even when the site thrashes class names.
+    obs = new MutationObserver(() => scheduleScan());
+    obs.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    window.addEventListener("resize", scheduleScan);
+    scheduleScan();
+  };
+
+  if (document.body) {
+    start();
+  } else {
+    bodyWaiter = new MutationObserver(() => {
+      if (document.body) {
+        bodyWaiter?.disconnect();
+        bodyWaiter = null;
+        start();
+      }
+    });
+    bodyWaiter.observe(document.documentElement, { childList: true });
+  }
+
+  return {
+    setHeight(px) {
+      if (currentOffset === px) return;
+      currentOffset = px;
+      reapplyOffsets();
+      scheduleScan();
+    },
+    teardown() {
+      if (tornDown) return;
+      tornDown = true;
+      obs?.disconnect();
+      bodyWaiter?.disconnect();
+      window.removeEventListener("resize", scheduleScan);
+      document
+        .querySelectorAll<HTMLElement>(`[${SHIFTED_ATTR}]`)
+        .forEach((el) => {
+          el.style.removeProperty("top");
+          el.removeAttribute(SHIFTED_ATTR);
+          el.removeAttribute(ORIG_TOP_ATTR);
+        });
+    },
+  };
 }
 
 function wireSpaNav(onChange: () => void) {
@@ -693,11 +865,25 @@ async function mount(ctx: TabContext) {
   };
 
   render();
+  const navOffset = setupFixedNavOffset();
   applyBodyOffset();
+  navOffset.setHeight(HEIGHT_PX);
 
   wireSpaNav(render);
   wireMenu(refs, ctx);
   wireStar(refs, ctx);
+
+  // "Hide for this session" escape hatch: if the nav-shift heuristic misjudges
+  // something on a given site, the user can yank the banner entirely until
+  // reload. We tear down DOM mutations we caused (body margin, shifted navs)
+  // so the page looks exactly like it would without the extension injected.
+  // The Helios polling loop self-exits once the banner element is gone.
+  refs.hideItem.addEventListener("click", () => {
+    refs.menu.classList.remove("open");
+    navOffset.teardown();
+    if (document.body) document.body.style.marginTop = "";
+    refs.host.remove();
+  });
 
   let pendingUpdateUrl: string | null = null;
   const showUpdateStrip = (gatewayUrl: string) => {
@@ -705,6 +891,7 @@ async function mount(ctx: TabContext) {
     refs.updateStrip.classList.add("show");
     refs.host.style.height = `${HEIGHT_PX + UPDATE_STRIP_PX}px`;
     applyBodyOffset(HEIGHT_PX + UPDATE_STRIP_PX);
+    navOffset.setHeight(HEIGHT_PX + UPDATE_STRIP_PX);
   };
   const hideUpdateStrip = () => {
     pendingUpdateUrl = null;
