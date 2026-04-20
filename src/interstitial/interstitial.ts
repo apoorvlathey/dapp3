@@ -1,3 +1,11 @@
+import {
+  addBookmark,
+  isBookmarked,
+  normalizePath,
+  onBookmarksChanged,
+  removeBookmark,
+  type Bookmark,
+} from "@/lib/bookmarks";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { colorize } from "@/lib/url-field";
 
@@ -43,7 +51,7 @@ const statusEl = document.getElementById("status") as HTMLParagraphElement;
 const barEl = document.getElementById("bar") as HTMLDivElement;
 const loaderEl = document.getElementById("loader") as HTMLDivElement;
 const bypassBtn = document.getElementById("bypass") as HTMLButtonElement;
-const cancelBtn = document.getElementById("cancel") as HTMLButtonElement;
+const starBtn = document.getElementById("star") as HTMLButtonElement;
 const statusBadgeEl = document.getElementById("statusBadge") as HTMLSpanElement;
 const statusDotEl = document.getElementById("statusDot") as HTMLSpanElement;
 const statusLabelEl = document.getElementById("statusLabel") as HTMLSpanElement;
@@ -242,10 +250,53 @@ async function pollLoop() {
 }
 
 bypassBtn.addEventListener("click", () => triggerResolve(true));
-cancelBtn.addEventListener("click", () => {
-  polling = false;
-  history.back();
-});
+
+// Bookmark toggle for the current resolution target. The interstitial doesn't
+// have page metadata (title/favicon/description) since the dapp hasn't loaded
+// yet — the bookmark is stored as just name + path.
+function applyStarState(favorited: boolean) {
+  const svg = starBtn.querySelector("svg");
+  if (favorited) {
+    starBtn.classList.add("favorited");
+    starBtn.setAttribute("title", "Remove from favorites");
+    starBtn.setAttribute("aria-pressed", "true");
+    svg?.setAttribute("fill", "currentColor");
+  } else {
+    starBtn.classList.remove("favorited");
+    starBtn.setAttribute("title", "Favorite this site");
+    starBtn.setAttribute("aria-pressed", "false");
+    svg?.setAttribute("fill", "none");
+  }
+}
+
+if (ensName) {
+  const bookmarkPath = normalizePath(`${path}${search}${hash}` || "/");
+  const refreshStar = async () => {
+    applyStarState(await isBookmarked(ensName, bookmarkPath));
+  };
+  refreshStar();
+  starBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (starBtn.classList.contains("favorited")) {
+      await removeBookmark(ensName, bookmarkPath);
+    } else {
+      const entry: Bookmark = {
+        ensName,
+        path: bookmarkPath,
+        addedAt: Date.now(),
+      };
+      await addBookmark(entry);
+    }
+  });
+  onBookmarksChanged((list) => {
+    const fav = list.some(
+      (b) => b.ensName === ensName && b.path === bookmarkPath,
+    );
+    applyStarState(fav);
+  });
+} else {
+  starBtn.hidden = true;
+}
 
 (async () => {
   if (await tryCache()) return;

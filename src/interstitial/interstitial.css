@@ -203,6 +203,24 @@ body {
 .name .u-host { color: var(--brand-300); }
 .name .u-path { color: var(--brand-300); opacity: 0.5; }
 
+.star-btn {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex: none;
+  transition: color 150ms, background-color 150ms;
+}
+.star-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.star-btn svg { width: 14px; height: 14px; display: block; }
+.star-btn.favorited { color: #fbbf24; }
+.star-btn.favorited:hover { color: #fcd34d; }
+
 .actions {
   display: inline-flex;
   gap: 6px;
@@ -227,16 +245,6 @@ button.ghost {
 button.ghost:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-}
-
-button.ghost.secondary {
-  color: var(--text-muted);
-  border-color: transparent;
-}
-
-button.ghost.secondary:hover {
-  color: var(--text-primary);
-  border-color: var(--border);
 }
 
 /* Centered stage: bars + status message, fills the viewport below topbar. */
