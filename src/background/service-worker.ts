@@ -3,7 +3,8 @@ import { resolveEns, getOrStartHelios, probeRpc } from "@/lib/resolver";
 import { buildSubdomainUrl } from "@/lib/gateway";
 import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
-import type { TabContext } from "@/lib/messaging";
+import type { ContentUpdatedMessage, TabContext } from "@/lib/messaging";
+import { getCached, setCached } from "@/lib/cache";
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
 
@@ -127,7 +128,90 @@ async function resolveAndRedirect(
     trustedDirectly: result.trustedDirectly,
   };
   await chrome.storage.session.set({ [`tab:${tabId}`]: ctx });
+  // Only cache Helios-verified resolutions. Bypass-trusted results carry a
+  // weaker trust contract and shouldn't be served silently on later visits.
+  if (!result.trustedDirectly) {
+    await setCached({
+      ensName: result.ensName,
+      kind: result.kind,
+      value: result.value,
+      resolvedAt: Date.now(),
+    }).catch((e) => console.warn("[dapp3] cache write failed", e));
+  }
   await chrome.tabs.update(tabId, { url: target });
+}
+
+// Background re-resolve after a cache-hit navigation. If the verified
+// contenthash differs from what we just served, update the cache, the
+// session-storage TabContext (so a future hydrate sees fresh values), and
+// notify the banner so it can offer the user a one-click reload.
+async function refreshFromCache(
+  tabId: number,
+  ensName: string,
+  path: string,
+  search: string,
+  hash: string,
+  cachedValue: string,
+) {
+  let result;
+  try {
+    result = await resolveEns(ensName);
+  } catch (e) {
+    console.warn("[dapp3] background refresh failed", e);
+    return;
+  }
+  if (!result.ok) {
+    // Not fatal — the cached page is still working. A subsequent visit will
+    // try again.
+    console.log(
+      `[dapp3] background refresh of ${ensName} failed: ${result.error}`,
+    );
+    return;
+  }
+  if (result.value === cachedValue) {
+    // Cache is still fresh; nothing to do beyond bumping the timestamp.
+    await setCached({
+      ensName: result.ensName,
+      kind: result.kind,
+      value: result.value,
+      resolvedAt: Date.now(),
+    }).catch(() => undefined);
+    return;
+  }
+  await setCached({
+    ensName: result.ensName,
+    kind: result.kind,
+    value: result.value,
+    resolvedAt: Date.now(),
+  }).catch(() => undefined);
+  const newGateway = buildSubdomainUrl(
+    result.kind,
+    result.value,
+    path || "/",
+    search,
+    hash,
+  );
+  // Update the session ctx so the banner's next hydrate (e.g. after the user
+  // accepts the reload) reflects the new value, not the stale cached one.
+  const fresh: TabContext = {
+    ensName: result.ensName,
+    kind: result.kind,
+    value: result.value,
+    path: path + search + hash,
+    trustedDirectly: false,
+  };
+  await chrome.storage.session.set({ [`tab:${tabId}`]: fresh });
+  const msg: ContentUpdatedMessage = {
+    type: "content-updated",
+    ensName: result.ensName,
+    kind: result.kind,
+    value: result.value,
+    gatewayUrl: newGateway,
+  };
+  chrome.tabs.sendMessage(tabId, msg).catch(() => {
+    // Banner content script may not be listening yet (page still loading);
+    // it'll request the latest ctx from session storage on init.
+  });
 }
 
 // Ensure the DNR rules are registered on every SW wake-up. Dynamic rules
@@ -173,6 +257,49 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.session.get(`tab:${tabId}`).then((res) => {
       sendResponse({ ctx: res[`tab:${tabId}`] ?? null });
     });
+    return true;
+  }
+
+  if (msg?.type === "interstitial-cache-check") {
+    const tabId = sender.tab?.id ?? msg.tabId;
+    const name = String(msg.name ?? "").toLowerCase();
+    const path = String(msg.path ?? "/");
+    const search = String(msg.search ?? "");
+    const hash = String(msg.hash ?? "");
+    if (tabId == null || !name) {
+      sendResponse({ cached: false });
+      return false;
+    }
+    (async () => {
+      const hit = await getCached(name).catch(() => null);
+      if (!hit) {
+        sendResponse({ cached: false });
+        return;
+      }
+      const gatewayUrl = buildSubdomainUrl(
+        hit.kind,
+        hit.value,
+        path || "/",
+        search,
+        hash,
+      );
+      const ctx: TabContext = {
+        ensName: hit.ensName,
+        kind: hit.kind,
+        value: hit.value,
+        path: path + search + hash,
+        trustedDirectly: false,
+        fromCache: true,
+      };
+      await chrome.storage.session.set({ [`tab:${tabId}`]: ctx });
+      sendResponse({ cached: true, gatewayUrl });
+      // Kick off the background re-resolve. Helios was pre-warmed in
+      // onBeforeNavigate; if it isn't synced yet the resolve will fail and
+      // we'll silently skip the freshness check until next visit.
+      refreshFromCache(tabId, name, path, search, hash, hit.value).catch(
+        (e) => console.warn("[dapp3] refreshFromCache threw", e),
+      );
+    })();
     return true;
   }
 

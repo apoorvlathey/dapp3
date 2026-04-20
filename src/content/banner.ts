@@ -1,9 +1,10 @@
-import type { TabContext } from "@/lib/messaging";
+import type { ContentUpdatedMessage, TabContext } from "@/lib/messaging";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { setupAddressField, type AddressField } from "@/lib/url-field";
 
 const BANNER_ID = "dapp3-banner";
 const HEIGHT_PX = 44;
+const UPDATE_STRIP_PX = 32;
 const POLL_MS = 2000;
 
 async function getCtx(): Promise<TabContext | null> {
@@ -94,6 +95,9 @@ type Refs = {
   copyItem: HTMLButtonElement;
   settingsItem: HTMLButtonElement;
   copyToast: HTMLSpanElement;
+  updateStrip: HTMLDivElement;
+  updateReloadBtn: HTMLButtonElement;
+  updateDismissBtn: HTMLButtonElement;
 };
 
 // Parse an address-bar-style input into a navigable `http://<name>.eth/...` URL.
@@ -124,6 +128,7 @@ function buildBanner(): Refs {
     "margin:0",
     "padding:0",
     "border:0",
+    "display:block",
   ].join(";");
 
   const shadow = host.attachShadow({ mode: "closed" });
@@ -254,6 +259,50 @@ function buildBanner(): Refs {
       font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
     }
     .toast.show { display: inline; }
+    .update {
+      display: none;
+      align-items: center; gap: 10px;
+      height: ${UPDATE_STRIP_PX}px; padding: 0 12px;
+      font: 500 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      color: #fef3c7;
+      background: #1a1207;
+      border-bottom: 1px solid #422006;
+    }
+    .update.show { display: flex; }
+    .update .update-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #fbbf24; flex: none;
+    }
+    .update .update-text {
+      flex: 1 1 auto; min-width: 0;
+      color: #fef3c7;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .update .update-text strong {
+      color: #fde68a; font-weight: 600;
+    }
+    .update .update-actions {
+      display: inline-flex; align-items: center; gap: 6px; flex: none;
+    }
+    .update button {
+      all: unset;
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 22px; padding: 0 10px; border-radius: 4px;
+      font: 600 11px/1 inherit;
+      cursor: pointer;
+      transition: background-color 150ms, color 150ms, border-color 150ms;
+    }
+    .update button.reload {
+      color: #09090b; background: #fbbf24;
+    }
+    .update button.reload:hover { background: #fcd34d; }
+    .update button.dismiss {
+      color: #fcd34d; background: transparent;
+      border: 1px solid #422006;
+    }
+    .update button.dismiss:hover {
+      background: #2a1a09; border-color: #78350f;
+    }
   `;
 
   const bar = document.createElement("div");
@@ -290,7 +339,21 @@ function buildBanner(): Refs {
     </span>
   `;
 
-  shadow.append(style, bar);
+  const updateStrip = document.createElement("div");
+  updateStrip.className = "update";
+  updateStrip.innerHTML = `
+    <span class="update-dot" aria-hidden="true"></span>
+    <span class="update-text">
+      <strong>Updated content available.</strong>
+      The verified contenthash for this name has changed since this page loaded.
+    </span>
+    <span class="update-actions">
+      <button class="reload" type="button" data-act="reload">Reload</button>
+      <button class="dismiss" type="button" data-act="dismiss" aria-label="dismiss">Dismiss</button>
+    </span>
+  `;
+
+  shadow.append(style, bar, updateStrip);
 
   const q = <T extends Element>(sel: string) =>
     shadow.querySelector(sel) as T;
@@ -308,14 +371,17 @@ function buildBanner(): Refs {
     copyItem: q<HTMLButtonElement>('button[data-act="copy"]'),
     settingsItem: q<HTMLButtonElement>('button[data-act="settings"]'),
     copyToast: q<HTMLSpanElement>(".toast"),
+    updateStrip,
+    updateReloadBtn: q<HTMLButtonElement>('.update button[data-act="reload"]'),
+    updateDismissBtn: q<HTMLButtonElement>('.update button[data-act="dismiss"]'),
   };
 }
 
-function applyBodyOffset() {
+function applyBodyOffset(target = HEIGHT_PX) {
   const apply = () => {
     if (!document.body) return false;
     const cur = parseFloat(getComputedStyle(document.body).marginTop) || 0;
-    document.body.style.marginTop = `${Math.max(cur, HEIGHT_PX)}px`;
+    document.body.style.marginTop = `${Math.max(cur, target)}px`;
     // NOTE: do NOT set transform on <body> to "contain" page-level fixed
     // headers. A transform on <body> makes it the containing block for *all*
     // position:fixed descendants — which breaks dapp wallet-connect modals
@@ -456,6 +522,38 @@ async function mount(ctx: TabContext) {
 
   wireSpaNav(render);
   wireMenu(refs);
+
+  let pendingUpdateUrl: string | null = null;
+  const showUpdateStrip = (gatewayUrl: string) => {
+    pendingUpdateUrl = gatewayUrl;
+    refs.updateStrip.classList.add("show");
+    refs.host.style.height = `${HEIGHT_PX + UPDATE_STRIP_PX}px`;
+    applyBodyOffset(HEIGHT_PX + UPDATE_STRIP_PX);
+  };
+  const hideUpdateStrip = () => {
+    pendingUpdateUrl = null;
+    refs.updateStrip.classList.remove("show");
+    refs.host.style.height = `${HEIGHT_PX}px`;
+    // Body margin only ever grows; no need to shrink it on dismiss — leaving
+    // the extra 32px in place is less jarring than the page contents jumping.
+  };
+  refs.updateReloadBtn.addEventListener("click", () => {
+    if (pendingUpdateUrl) location.assign(pendingUpdateUrl);
+  });
+  refs.updateDismissBtn.addEventListener("click", hideUpdateStrip);
+
+  chrome.runtime.onMessage.addListener((msg: ContentUpdatedMessage) => {
+    if (msg?.type !== "content-updated") return;
+    if (msg.ensName.toLowerCase() !== ctx.ensName.toLowerCase()) return;
+    // Preserve the user's current in-page path/search/hash on the reload, not
+    // the path that was on the URL at initial navigation. The SW's gatewayUrl
+    // was built from the initial path; rebuild for the live location.
+    const u = new URL(msg.gatewayUrl);
+    u.pathname = location.pathname;
+    u.search = location.search;
+    u.hash = location.hash;
+    showUpdateStrip(u.toString());
+  });
 
   // Live Helios status polling. Stops when the banner element is removed.
   (async () => {

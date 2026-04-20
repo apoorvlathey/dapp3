@@ -139,6 +139,31 @@ if (ensName) {
 
 let polling = true;
 
+// Fast path: if the SW has a cached resolution for this name, skip the Helios
+// wait + resolve round-trip and jump straight to the gateway URL. The SW
+// re-resolves in the background and the banner surfaces an "updated" notice
+// if the contenthash has since changed.
+async function tryCache(): Promise<boolean> {
+  if (!ensName) return false;
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: "interstitial-cache-check",
+      name: ensName,
+      path,
+      search,
+      hash,
+    });
+    if (resp?.cached && typeof resp.gatewayUrl === "string") {
+      polling = false;
+      location.replace(resp.gatewayUrl);
+      return true;
+    }
+  } catch {
+    // SW unavailable or message failed — fall back to the Helios poll path.
+  }
+  return false;
+}
+
 function setBar(state: "loading" | "ok" | "bad") {
   barEl.classList.remove("ok", "bad");
   loaderEl.classList.remove("ok", "bad");
@@ -222,4 +247,7 @@ cancelBtn.addEventListener("click", () => {
   history.back();
 });
 
-pollLoop();
+(async () => {
+  if (await tryCache()) return;
+  pollLoop();
+})();
