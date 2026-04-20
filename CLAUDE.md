@@ -4,21 +4,27 @@ Local-first, trust-minimized browser extension that resolves `*.eth` navigations
 
 Chromium MV3 only. Mainnet only. First-level `.eth` names only. See `PRD.md` for full scope and non-goals.
 
+## Repo layout
+
+Extension code lives under `extension/`. Run all `pnpm` commands from there. Future siblings (e.g. `website/`) will live next to it at the repo root.
+
 ## Tooling
 
-- Package manager: **pnpm** (there's a `pnpm-lock.yaml` — don't use npm/yarn).
+- Package manager: **pnpm** (there's a `pnpm-lock.yaml` — don't use npm/yarn). Run from `extension/`.
 - Build: `pnpm build` (runs `tsc --noEmit` + `vite build`). Dev: `pnpm dev` (HMR, but SW changes still need extension reload).
 - Typecheck only: `pnpm typecheck`.
-- Load the built extension from `dist/` as unpacked in `chrome://extensions`.
-- TypeScript strict mode. Path alias `@/*` → `src/*`.
+- Load the built extension from `extension/dist/` as unpacked in `chrome://extensions`.
+- TypeScript strict mode. Path alias `@/*` → `src/*` (relative to `extension/`).
 
 ## Top-level layout
+
+Paths below are relative to `extension/` unless noted.
 
 ```
 manifest.config.ts     # @crxjs manifest (permissions, CSP, host perms, DNR rules)
 vite.config.ts         # build config — has a load-bearing `modulePreload: false`
-PRD.md                 # scope, architecture, progress log (read for "why")
-IMPLEMENTATION.md      # landmines, runtime model, Helios gotchas (read for "how")
+../PRD.md              # scope, architecture, progress log (read for "why")
+../IMPLEMENTATION.md   # landmines, runtime model, Helios gotchas (read for "how")
 public/rules/          # static declarativeNetRequest rules (HTTPS-upgrade bypass)
 src/
   background/          # MV3 service worker — entry point for navigation interception

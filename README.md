@@ -12,12 +12,15 @@ See [PRD.md](./PRD.md) for full scope, architecture, and milestones.
 
 ## Development
 
+Extension code lives under `extension/`. Run pnpm commands from there:
+
 ```sh
+cd extension
 pnpm install
 pnpm dev
 ```
 
-Then load `dist/` as an unpacked extension (`chrome://extensions` → Developer mode → Load unpacked).
+Then load `extension/dist/` as an unpacked extension (`chrome://extensions` → Developer mode → Load unpacked).
 
 `pnpm dev` keeps HMR running for options / popup / content pages. Reload the extension after changes to the background service worker.
 
