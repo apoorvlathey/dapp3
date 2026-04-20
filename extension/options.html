@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>dapp3 · settings</title>
+    <title>dapp3.eth · settings</title>
     <link rel="stylesheet" href="./src/options/options.css" />
   </head>
   <body>
@@ -14,19 +14,15 @@
             <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
           </svg>
         </span>
-        <h1>dapp3</h1>
+        <h1>dapp3.eth</h1>
       </div>
-      <p class="sub">Local-first ENS gateway. Mainnet only.</p>
+      <p class="sub">Your local-first ENS gateway.</p>
 
       <section>
-        <div class="section-head">
-          <h2>Ethereum RPC endpoints</h2>
-          <span class="section-label">EXECUTION LAYER</span>
-        </div>
+        <h2>Ethereum RPC endpoints</h2>
         <p class="hint">
-          The <em>first</em> RPC is what Helios uses to fetch execution-layer
-          state (verified against the consensus-committed state root). Helios
-          reboots if you change which one is first.
+          Helios uses the <em>first</em> RPC for execution reads. Reorder to
+          swap — the light client reboots on a primary change.
         </p>
         <div id="rpc-list" class="rpc-list"></div>
         <form id="rpc-add">
@@ -41,41 +37,44 @@
       </section>
 
       <section>
-        <div class="section-head">
-          <h2>Helios light client</h2>
-          <span class="section-label">CONSENSUS</span>
+        <h2>Helios light client</h2>
+        <div class="statusbox">
+          <span class="dot" id="helios-dot"></span>
+          <span id="helios-live">loading…</span>
         </div>
-        <ul class="kv">
-          <li>
-            <span class="k">Consensus RPC</span>
-            <span class="v" id="consensus-rpc">(default)</span>
-          </li>
-          <li>
-            <span class="k">Status</span>
-            <span class="v" id="helios-live">loading…</span>
-          </li>
-        </ul>
+        <form id="consensus-form" class="consensus-form">
+          <div class="consensus-head">
+            <span class="meta-k">Consensus RPC</span>
+            <div class="chips" id="consensus-chips"></div>
+          </div>
+          <div class="input-row">
+            <input
+              type="url"
+              id="consensus-input"
+              placeholder="https://your-beacon-api.example"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="submit" id="consensus-apply">Apply</button>
+          </div>
+          <p class="hint" id="consensus-status"></p>
+        </form>
       </section>
 
       <section>
-        <div class="section-head">
-          <h2>Gateway interception</h2>
-          <span class="section-label">REDIRECTS</span>
-        </div>
+        <h2>Gateway interception</h2>
         <p class="hint">
-          When on, navigations to <code>*.eth.limo</code> and
-          <code>*.eth.link</code> are rewritten to the underlying
-          <code>.eth</code> name and resolved locally — same trust path as
-          typing the name directly. Turn off if you'd rather use the public
-          gateways.
+          Rewrites <code>*.eth.limo</code> / <code>*.eth.link</code> to the
+          underlying <code>.eth</code> name and resolves locally. Turn off to
+          fall back to the public gateways.
         </p>
         <label class="toggle-row" for="intercept-ethlimo">
           <input type="checkbox" id="intercept-ethlimo" />
           <span class="toggle-text">
             <span class="toggle-title">Intercept eth.limo / eth.link links</span>
             <span class="toggle-sub" id="intercept-ethlimo-sub">
-              Requires a working local IPFS node. Failed resolutions show a
-              one-click fallback to the public eth.limo gateway.
+              Requires a local IPFS node. Failed resolutions offer a one-click
+              fallback to the public gateway.
             </span>
           </span>
         </label>

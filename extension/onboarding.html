@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>dapp3 · setup</title>
+    <title>dapp3.eth · setup</title>
     <link rel="stylesheet" href="./src/onboarding/onboarding.css" />
   </head>
   <body>
@@ -10,44 +10,57 @@
       <header>
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981"/>
-            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981" />
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669" />
           </svg>
         </span>
-        <h1>dapp3</h1>
+        <h1>dapp3.eth</h1>
         <p class="sub">
-          A local-first gateway: type <code>vitalik.eth</code>, serve from your
-          own IPFS node, verify ENS against Ethereum's consensus.
+          Add <code>.eth</code> domain support to your browser, verified
+          locally!
         </p>
       </header>
 
-      <nav class="stepper">
-        <span class="step" data-step="1">1 · IPFS</span>
-        <span class="step" data-step="2">2 · RPC</span>
-        <span class="step" data-step="3">3 · Advanced</span>
-        <span class="step" data-step="4">4 · Sync</span>
+      <nav class="stepper" aria-label="Setup progress">
+        <span class="step" data-step="1"
+          ><span class="step-num"><span class="step-num-text">1</span></span
+          ><span class="step-label">IPFS</span></span
+        >
+        <span class="step-line" aria-hidden="true"></span>
+        <span class="step" data-step="2"
+          ><span class="step-num"><span class="step-num-text">2</span></span
+          ><span class="step-label">RPC</span></span
+        >
+        <span class="step-line" aria-hidden="true"></span>
+        <span class="step" data-step="3"
+          ><span class="step-num"><span class="step-num-text">3</span></span
+          ><span class="step-label">Sync</span></span
+        >
       </nav>
 
       <!-- Step 1: IPFS -->
       <section class="step-panel" data-step="1">
-        <h2>Local IPFS node</h2>
-        <p>
-          Install
+        <h2>Connect your IPFS node</h2>
+        <p class="lede">
+          dapp3 serves <code>.eth</code> sites from a local IPFS node, nothing
+          touches a public gateway.
+        </p>
+        <div class="statusbox" id="ipfs-statusbox">
+          <span class="dot" id="ipfs-dot"></span>
+          <span id="ipfs-status-text">checking…</span>
+        </div>
+        <p class="hint when-not-ok">
+          No node yet? Install
           <a
             href="https://docs.ipfs.tech/install/ipfs-desktop/"
             target="_blank"
             rel="noopener"
             >IPFS Desktop</a
           >
-          or run <code>kubo</code>. Needs the subdomain gateway at
-          <code>localhost:8080</code>.
+          or run <code>kubo</code>, then re-check.
         </p>
-        <div class="statusbox" id="ipfs-statusbox">
-          <span class="dot" id="ipfs-dot"></span>
-          <span id="ipfs-status-text">checking…</span>
-        </div>
-        <details>
-          <summary>Not connecting?</summary>
+        <details class="when-not-ok">
+          <summary>Installed but not connecting?</summary>
           <ul>
             <li>
               Test: <code>curl -I http://bafkqaaa.ipfs.localhost:8080/</code>
@@ -61,32 +74,48 @@
             </li>
           </ul>
         </details>
-        <div class="actions">
-          <button id="ipfs-recheck" type="button">Re-check</button>
-          <button id="ipfs-next" type="button" class="primary" disabled>
-            Next →
+        <footer class="panel-footer">
+          <button id="ipfs-recheck" type="button" class="ghost">
+            <svg
+              class="btn-icon"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M13.5 3.5v3h-3" />
+              <path d="M2.5 12.5v-3h3" />
+              <path
+                d="M3.5 6.5a5 5 0 0 1 9 -1.5l1 1.5M12.5 9.5a5 5 0 0 1 -9 1.5l-1 -1.5"
+              />
+            </svg>
+            Re-check
           </button>
-        </div>
+          <button id="ipfs-next" type="button" class="primary" disabled>
+            Continue →
+          </button>
+        </footer>
       </section>
 
       <!-- Step 2: RPC -->
       <section class="step-panel" data-step="2" hidden>
-        <div class="step-nav-top">
-          <button id="rpc-back" type="button" class="back-btn">← Back</button>
-        </div>
-        <h2>Ethereum execution RPC</h2>
-        <p>
-          Paste any mainnet RPC URL. Helios verifies every read — the RPC
-          doesn't need to be trusted.
+        <h2>Pick an Ethereum RPC</h2>
+        <p class="lede">
+          Paste any mainnet RPC URL. Helios verifies every read against
+          consensus, the RPC never needs to be trusted.
         </p>
         <form id="rpc-form">
           <input
             type="url"
             name="url"
             placeholder="https://your-rpc.example/…"
+            autocomplete="off"
+            spellcheck="false"
             required
           />
-          <button type="submit" class="primary">Add &amp; Continue →</button>
         </form>
 
         <details class="explainer-details">
@@ -122,70 +151,78 @@
             </p>
           </div>
         </details>
+
+        <footer class="panel-footer">
+          <button id="rpc-back" type="button" class="ghost">← Back</button>
+          <button id="rpc-submit" type="submit" form="rpc-form" class="primary">
+            Add &amp; Continue →
+          </button>
+        </footer>
       </section>
 
-      <!-- Step 3: Advanced -->
+      <!-- Step 3: Sync -->
       <section class="step-panel" data-step="3" hidden>
-        <div class="step-nav-top">
-          <button id="adv-back" type="button" class="back-btn">← Back</button>
-        </div>
-        <h2>Advanced <span class="muted-tag">optional</span></h2>
-        <p>Defaults work for most users. Skip unless you know you need these.</p>
-        <form id="advanced-form">
-          <label>
-            <span>Consensus RPC</span>
-            <input
-              type="url"
-              name="consensusRpc"
-              placeholder="https://lodestar-mainnet.chainsafe.io"
-            />
-            <small>
-              Default: <code>lodestar-mainnet.chainsafe.io</code>. Most public
-              beacon APIs break Helios sync — stick with the default.
-              <span class="chips" id="consensus-chips"></span>
-            </small>
-          </label>
-          <label>
-            <span>Checkpoint hash</span>
-            <input
-              type="text"
-              name="checkpoint"
-              placeholder="0x… (leave empty to auto-fetch)"
-              pattern="^(0x)?[0-9a-fA-F]{64}$"
-            />
-            <small>
-              Leave empty to auto-fetch finalized (recommended). Pin a hash from
-              <a
-                href="https://sync-mainnet.beaconcha.in"
-                target="_blank"
-                rel="noopener"
-                >sync-mainnet.beaconcha.in</a
-              >
-              if you need a known checkpoint.
-            </small>
-          </label>
-          <div class="actions">
-            <button type="submit" class="primary">Save &amp; Continue →</button>
-          </div>
-        </form>
-      </section>
-
-      <!-- Step 4: Sync -->
-      <section class="step-panel" data-step="4" hidden>
-        <div class="step-nav-top">
-          <button id="sync-back" type="button" class="back-btn">← Back</button>
-        </div>
-        <h2>Starting Helios</h2>
-        <p>Fetching checkpoint and catching up to head — usually &lt;30s.</p>
+        <h2 id="sync-title">Starting Helios</h2>
+        <p class="lede" id="sync-lede">
+          Fetching checkpoint and catching up to head — usually under 30
+          seconds.
+        </p>
         <div class="statusbox">
           <span class="dot" id="helios-dot"></span>
           <span id="helios-status-text">waiting…</span>
         </div>
-        <div class="actions">
+
+        <!-- Error recovery: shown only when Helios errors out -->
+        <div id="sync-recovery" hidden>
+          <p class="hint">
+            The default consensus RPC didn't respond. Try a different one:
+          </p>
+          <div class="chips" id="consensus-chips"></div>
+
+          <details class="advanced-details">
+            <summary>Advanced configuration</summary>
+            <div class="advanced-body">
+              <label>
+                <span>Custom consensus RPC</span>
+                <input
+                  type="url"
+                  id="adv-consensus-input"
+                  placeholder="https://your-beacon-api.example"
+                />
+              </label>
+              <label>
+                <span>Checkpoint hash</span>
+                <input
+                  type="text"
+                  id="adv-checkpoint-input"
+                  placeholder="0x… (leave empty to auto-fetch)"
+                  pattern="^(0x)?[0-9a-fA-F]{64}$"
+                />
+                <small>
+                  Leave empty to auto-fetch the latest finalized slot. Pin a
+                  hash from
+                  <a
+                    href="https://sync-mainnet.beaconcha.in"
+                    target="_blank"
+                    rel="noopener"
+                    >sync-mainnet.beaconcha.in</a
+                  >
+                  if you need a known checkpoint.
+                </small>
+              </label>
+              <button id="adv-apply" type="button" class="ghost">
+                Apply &amp; retry
+              </button>
+            </div>
+          </details>
+        </div>
+
+        <footer class="panel-footer">
+          <button id="sync-back" type="button" class="ghost">← Back</button>
           <button id="finish" type="button" class="primary" disabled>
             Finish setup
           </button>
-        </div>
+        </footer>
       </section>
     </main>
     <script type="module" src="./src/onboarding/onboarding.ts"></script>

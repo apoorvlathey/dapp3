@@ -10,17 +10,138 @@ import {
 import type { HeliosStatus } from "@/lib/helios-bridge";
 
 const DEFAULT_CONSENSUS_RPC = "https://ethereum-beacon-api.publicnode.com";
+const ALTERNATIVE_CONSENSUS_RPCS = [
+  "https://ethereum-beacon-api.publicnode.com",
+  "https://eth-beacon-chain.drpc.org",
+  "https://lodestar-mainnet.chainsafe.io",
+];
 
 const listEl = document.getElementById("rpc-list") as HTMLDivElement;
 const addForm = document.getElementById("rpc-add") as HTMLFormElement;
-const consensusEl = document.getElementById("consensus-rpc") as HTMLElement;
 const heliosLiveEl = document.getElementById("helios-live") as HTMLElement;
+const heliosDotEl = document.getElementById("helios-dot") as HTMLElement;
+const consensusForm = document.getElementById(
+  "consensus-form",
+) as HTMLFormElement;
+const consensusInput = document.getElementById(
+  "consensus-input",
+) as HTMLInputElement;
+const consensusChipsEl = document.getElementById(
+  "consensus-chips",
+) as HTMLElement;
+const consensusStatus = document.getElementById(
+  "consensus-status",
+) as HTMLElement;
+const consensusApplyBtn = document.getElementById(
+  "consensus-apply",
+) as HTMLButtonElement;
 const interceptToggle = document.getElementById(
   "intercept-ethlimo",
 ) as HTMLInputElement;
 
+function currentConsensusUrl(): string {
+  return consensusInput.value.trim() || DEFAULT_CONSENSUS_RPC;
+}
+
+function renderConsensusChips(active: string) {
+  consensusChipsEl.innerHTML = "";
+  for (const url of ALTERNATIVE_CONSENSUS_RPCS) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip" + (url === active ? " active" : "");
+    chip.textContent = new URL(url).host;
+    chip.title = url;
+    chip.addEventListener("click", () => {
+      consensusInput.value = url;
+      renderConsensusChips(url);
+      consensusInput.focus();
+    });
+    consensusChipsEl.appendChild(chip);
+  }
+}
+
+function syncConsensusUI(stored: string | undefined) {
+  // Empty stored value means "use the default". Show the default URL in the
+  // input so the user can see/edit what's actually in use without having to
+  // guess — but don't persist it until they actually hit Apply.
+  const effective = stored || DEFAULT_CONSENSUS_RPC;
+  consensusInput.value = effective;
+  renderConsensusChips(effective);
+  consensusStatus.textContent = "";
+}
+
+consensusInput.addEventListener("input", () => {
+  renderConsensusChips(currentConsensusUrl());
+});
+
+consensusForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const next = currentConsensusUrl();
+
+  let parsed: URL;
+  try {
+    parsed = new URL(next);
+  } catch {
+    consensusStatus.textContent = "That URL isn't valid.";
+    consensusStatus.className = "hint bad";
+    return;
+  }
+
+  consensusApplyBtn.disabled = true;
+  consensusStatus.className = "hint";
+  consensusStatus.textContent = "Requesting permission…";
+
+  const origin = parsed.origin + "/*";
+  const has = await chrome.permissions.contains({ origins: [origin] });
+  if (!has) {
+    const granted = await chrome.permissions.request({ origins: [origin] });
+    if (!granted) {
+      consensusStatus.textContent =
+        "Permission denied — Helios can't reach that host.";
+      consensusStatus.className = "hint bad";
+      consensusApplyBtn.disabled = false;
+      return;
+    }
+  }
+
+  // Empty string in storage means "use default" — if the user typed the
+  // default URL back, normalize to empty to keep settings clean.
+  const toStore = next === DEFAULT_CONSENSUS_RPC ? undefined : next;
+  await setSettings({ consensusRpc: toStore });
+
+  // The SW only reboots Helios automatically when `rpcUrls[0]` changes, so a
+  // consensus-only edit needs an explicit shutdown + boot round-trip.
+  consensusStatus.textContent = "Rebooting Helios with the new consensus RPC…";
+  try {
+    await chrome.runtime.sendMessage({ type: "shutdown-helios" });
+  } catch {
+    /* best-effort */
+  }
+  try {
+    await chrome.runtime.sendMessage({ type: "boot-helios" });
+  } catch {
+    /* status poll will surface any error */
+  }
+  consensusStatus.textContent = "Applied. Watching sync status above.";
+  consensusApplyBtn.disabled = false;
+});
+
 let cachedStats: Record<string, RpcStats> = {};
 let cachedUrls: string[] = [];
+// RPC URLs often carry API keys in their path (Infura, Alchemy, QuickNode…).
+// Rows stay masked by default and the user opts into revealing per-row — the
+// set persists across re-renders for the lifetime of the page.
+const revealedUrls = new Set<string>();
+
+function maskRpcUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const hasSecretPath = u.pathname && u.pathname !== "/";
+    return hasSecretPath ? `${u.origin}/•••` : u.origin;
+  } catch {
+    return url;
+  }
+}
 
 function fmtAge(ts?: number): string {
   if (!ts) return "never";
@@ -52,10 +173,11 @@ function render() {
     rank.className = "rank";
     rank.textContent = idx === 0 ? "PRIMARY" : `#${idx + 1}`;
 
+    const revealed = revealedUrls.has(url);
     const urlSpan = document.createElement("span");
-    urlSpan.className = "url";
-    urlSpan.textContent = url;
-    urlSpan.title = url;
+    urlSpan.className = "url" + (revealed ? " revealed" : " masked");
+    urlSpan.textContent = revealed ? url : maskRpcUrl(url);
+    urlSpan.title = revealed ? url : "Hidden — click the eye to reveal";
 
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -67,6 +189,13 @@ function render() {
         "Move down",
         () => move(idx, 1),
       ),
+    );
+    actions.appendChild(
+      eyeBtn(revealed, () => {
+        if (revealedUrls.has(url)) revealedUrls.delete(url);
+        else revealedUrls.add(url);
+        render();
+      }),
     );
     actions.appendChild(iconBtn("⟲", false, "Probe now", () => probe(url)));
     actions.appendChild(
@@ -118,6 +247,33 @@ function iconBtn(
   b.title = title;
   b.disabled = disabled;
   if (!disabled) b.addEventListener("click", onClick);
+  return b;
+}
+
+const EYE_OPEN_SVG = `
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/>
+    <circle cx="8" cy="8" r="2"/>
+  </svg>`;
+
+const EYE_OFF_SVG = `
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M2.5 3.5 13.5 12.5"/>
+    <path d="M6.2 4A8.4 8.4 0 0 1 8 3.5C12 3.5 14.5 8 14.5 8a13 13 0 0 1-2.2 2.7"/>
+    <path d="M10.2 10.7A6.9 6.9 0 0 1 8 12.5C4 12.5 1.5 8 1.5 8a13 13 0 0 1 2.6-3"/>
+    <path d="M6.6 6.6a2 2 0 0 0 2.8 2.8"/>
+  </svg>`;
+
+function eyeBtn(revealed: boolean, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = "icon";
+  b.type = "button";
+  b.innerHTML = revealed ? EYE_OFF_SVG : EYE_OPEN_SVG;
+  b.title = revealed ? "Hide URL" : "Reveal full URL";
+  b.setAttribute("aria-label", b.title);
+  b.addEventListener("click", onClick);
   return b;
 }
 
@@ -189,26 +345,37 @@ addForm.addEventListener("submit", async (e) => {
   addForm.reset();
 });
 
+function setHeliosDot(kind: "ok" | "bad" | "syncing" | "idle") {
+  heliosDotEl.classList.remove("ok", "bad", "syncing");
+  if (kind !== "idle") heliosDotEl.classList.add(kind);
+}
+
 function renderHelios(status: HeliosStatus | null) {
   if (!status) {
-    heliosLiveEl.textContent = "unknown";
+    heliosLiveEl.textContent = "Unknown";
+    setHeliosDot("idle");
     return;
   }
   switch (status.state) {
     case "idle":
-      heliosLiveEl.textContent = "idle";
+      heliosLiveEl.textContent = "Idle";
+      setHeliosDot("idle");
       break;
     case "booting":
-      heliosLiveEl.textContent = "booting…";
+      heliosLiveEl.textContent = "Booting…";
+      setHeliosDot("syncing");
       break;
     case "syncing":
-      heliosLiveEl.textContent = "syncing…";
+      heliosLiveEl.textContent = "Syncing with consensus…";
+      setHeliosDot("syncing");
       break;
     case "synced":
-      heliosLiveEl.textContent = `synced (exec: ${status.executionRpc ?? "—"})`;
+      heliosLiveEl.textContent = "Synced · verifying on-chain reads locally";
+      setHeliosDot("ok");
       break;
     case "error":
-      heliosLiveEl.textContent = `error: ${status.error ?? "unknown"}`;
+      heliosLiveEl.textContent = `Error: ${status.error ?? "unknown"}`;
+      setHeliosDot("bad");
       break;
   }
 }
@@ -240,7 +407,12 @@ onStatsChanged((all) => {
 
 onSettingsChanged((s) => {
   cachedUrls = s.rpcUrls;
-  consensusEl.textContent = s.consensusRpc || "(default) " + DEFAULT_CONSENSUS_RPC;
+  // Only resync the consensus input if the user isn't mid-edit (focused).
+  // Otherwise a storage-change event from this same page's own write would
+  // stomp on whatever they were typing.
+  if (document.activeElement !== consensusInput) {
+    syncConsensusUI(s.consensusRpc);
+  }
   interceptToggle.checked = s.interceptEthLimo;
   render();
 });
@@ -256,7 +428,7 @@ interceptToggle.addEventListener("change", async () => {
     return;
   }
   cachedUrls = s.rpcUrls;
-  consensusEl.textContent = s.consensusRpc || "(default) " + DEFAULT_CONSENSUS_RPC;
+  syncConsensusUI(s.consensusRpc);
   interceptToggle.checked = s.interceptEthLimo;
   await hydrateStats();
   pollHelios();

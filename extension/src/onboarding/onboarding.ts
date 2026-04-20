@@ -2,8 +2,13 @@ import { getSettings, setSettings } from "@/lib/settings";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 
 const DEFAULT_CONSENSUS_RPC = "https://ethereum-beacon-api.publicnode.com";
+const ALTERNATIVE_CONSENSUS_RPCS = [
+  "https://ethereum-beacon-api.publicnode.com",
+  "https://eth-beacon-chain.drpc.org",
+  "https://lodestar-mainnet.chainsafe.io",
+];
 
-type StepId = 1 | 2 | 3 | 4;
+type StepId = 1 | 2 | 3;
 let currentStep: StepId = 1;
 
 const stepper = document.querySelector(".stepper") as HTMLElement;
@@ -11,7 +16,6 @@ const panels: Record<StepId, HTMLElement> = {
   1: document.querySelector<HTMLElement>('.step-panel[data-step="1"]')!,
   2: document.querySelector<HTMLElement>('.step-panel[data-step="2"]')!,
   3: document.querySelector<HTMLElement>('.step-panel[data-step="3"]')!,
-  4: document.querySelector<HTMLElement>('.step-panel[data-step="4"]')!,
 };
 
 function showStep(s: StepId) {
@@ -39,27 +43,47 @@ const ipfsRecheck = document.getElementById("ipfs-recheck") as HTMLButtonElement
 let lastIpfsOk = false;
 
 async function probeIpfs(): Promise<boolean> {
+  const panel = panels[1];
+  // Don't strip state-ok/state-bad here — doing so reveals the "No node yet?"
+  // hint for the duration of the probe even when the last result was green,
+  // which flashes as a brief flicker on Re-check. Only commit the new state
+  // once the probe resolves.
   ipfsDot.classList.remove("ok", "bad");
-  ipfsText.textContent = "checking Kubo gateway at 127.0.0.1:8080…";
+  ipfsRecheck.classList.add("spinning");
+  ipfsText.textContent = "Checking Kubo gateway…";
   // Probe the subdomain gateway with the empty-UnixFS CID. `no-cors` means we
   // cannot read the response, but a resolved promise proves the port answered
   // — i.e. Kubo is up and serving subdomains on localhost:8080.
   try {
     await fetch("http://bafkqaaa.ipfs.localhost:8080/", {
       mode: "no-cors",
+      // The gateway serves this empty-UnixFS CID with
+      // `Cache-Control: public, max-age=31536000, immutable`, so once the user
+      // has hit it successfully Chrome will happily serve the cached response
+      // long after Kubo has stopped — making the probe look green while the
+      // port is actually dead. `no-store` forces a real network round-trip.
+      cache: "no-store",
       signal: AbortSignal.timeout(2500),
     });
     ipfsDot.classList.add("ok");
-    ipfsText.textContent = "online · gateway reachable at localhost:8080";
+    ipfsText.textContent = "Connected at localhost:8080";
     ipfsNext.disabled = false;
+    panel.classList.remove("state-bad");
+    panel.classList.add("state-ok");
     lastIpfsOk = true;
     return true;
   } catch (e) {
     ipfsDot.classList.add("bad");
-    ipfsText.textContent = `not reachable: ${e instanceof Error ? e.message : String(e)}`;
+    ipfsText.textContent = `Not reachable: ${e instanceof Error ? e.message : String(e)}`;
     ipfsNext.disabled = true;
+    panel.classList.remove("state-ok");
+    panel.classList.add("state-bad");
     lastIpfsOk = false;
     return false;
+  } finally {
+    // Kill the spin a tick after the probe settles so the animation completes
+    // even for near-instant responses (cached failures resolve in <10ms).
+    setTimeout(() => ipfsRecheck.classList.remove("spinning"), 400);
   }
 }
 
@@ -103,9 +127,11 @@ rpcForm.addEventListener("submit", async (e) => {
   try {
     parsed = new URL(url);
   } catch {
-    alert("Not a valid URL.");
+    rpcInput.classList.add("invalid");
+    rpcInput.focus();
     return;
   }
+  rpcInput.classList.remove("invalid");
   const cur = await getSettings();
   const consensus = cur.consensusRpc || DEFAULT_CONSENSUS_RPC;
   const origins = [`${parsed.origin}/*`];
@@ -124,89 +150,90 @@ rpcForm.addEventListener("submit", async (e) => {
   const existing = cur.rpcUrls.filter((u) => u !== url);
   await setSettings({ rpcUrls: [url, ...existing] });
   showStep(3);
+  void startHelios();
 });
 
-// --- Step 3: Advanced ---
-const advForm = document.getElementById("advanced-form") as HTMLFormElement;
-const advBack = document.getElementById("adv-back") as HTMLButtonElement;
+// --- Step 3: Sync ---
+const heliosDot = document.getElementById("helios-dot") as HTMLSpanElement;
+const heliosText = document.getElementById("helios-status-text") as HTMLSpanElement;
+const syncTitle = document.getElementById("sync-title") as HTMLElement;
+const syncLede = document.getElementById("sync-lede") as HTMLElement;
+const syncRecovery = document.getElementById("sync-recovery") as HTMLElement;
+const consensusChipsEl = document.getElementById("consensus-chips") as HTMLElement;
+const advConsensusInput = document.getElementById("adv-consensus-input") as HTMLInputElement;
+const advCheckpointInput = document.getElementById("adv-checkpoint-input") as HTMLInputElement;
+const advApplyBtn = document.getElementById("adv-apply") as HTMLButtonElement;
+const finishBtn = document.getElementById("finish") as HTMLButtonElement;
+const syncBack = document.getElementById("sync-back") as HTMLButtonElement;
 
-advBack.addEventListener("click", () => showStep(2));
+// Once Helios synces we persist `onboardingComplete: true` immediately — even
+// if the user never clicks Finish — so closing the tab mid-setup doesn't trap
+// them back on the onboarding page the next time they open the popup. The
+// Finish button becomes a convenience redirect to the options dashboard.
+let persistedComplete = false;
 
-(async () => {
-  const s = await getSettings();
-  const consInput = advForm.elements.namedItem("consensusRpc") as HTMLInputElement;
-  const ckptInput = advForm.elements.namedItem("checkpoint") as HTMLInputElement;
-  consInput.value = s.consensusRpc ?? "";
-  ckptInput.value = s.checkpoint ?? "";
-
-  const chipsEl = document.getElementById("consensus-chips");
-  if (chipsEl) {
-    const alternatives = [
-      "https://ethereum-beacon-api.publicnode.com",
-      "https://eth-beacon-chain.drpc.org",
-    ];
-    for (const url of alternatives) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "chip";
-      chip.textContent = new URL(url).host;
-      chip.title = url;
-      chip.addEventListener("click", () => {
-        consInput.value = url;
-        consInput.focus();
-      });
-      chipsEl.appendChild(chip);
-    }
+function renderConsensusChips() {
+  consensusChipsEl.innerHTML = "";
+  for (const url of ALTERNATIVE_CONSENSUS_RPCS) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip";
+    chip.textContent = new URL(url).host;
+    chip.title = url;
+    chip.addEventListener("click", () => {
+      void applyConsensus(url, undefined);
+    });
+    consensusChipsEl.appendChild(chip);
   }
-})();
+}
+renderConsensusChips();
 
-advForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const fd = new FormData(advForm);
-  const consensusRpc = String(fd.get("consensusRpc") ?? "").trim() || undefined;
-  let checkpoint = String(fd.get("checkpoint") ?? "").trim() || undefined;
-  if (checkpoint && !checkpoint.startsWith("0x")) checkpoint = "0x" + checkpoint;
-
-  const consensusToUse = consensusRpc || DEFAULT_CONSENSUS_RPC;
+async function applyConsensus(consensusUrl: string, checkpoint: string | undefined) {
+  // Ask for permission on the new host if we don't already have it.
   try {
-    const origin = new URL(consensusToUse).origin + "/*";
+    const origin = new URL(consensusUrl).origin + "/*";
     const has = await chrome.permissions.contains({ origins: [origin] });
     if (!has) {
       const granted = await chrome.permissions.request({ origins: [origin] });
       if (!granted) {
-        alert(
-          "Consensus RPC permission not granted — Helios will not be able to sync.",
-        );
+        alert("Permission not granted — Helios can't reach that host.");
         return;
       }
     }
   } catch {
-    alert("Consensus RPC URL is not valid.");
+    alert("That URL isn't valid.");
     return;
   }
 
-  await setSettings({ consensusRpc, checkpoint });
-  // Tear down any previous boot (possibly mid-sync with a stale consensus RPC
-  // from the implicit boot that ran when rpcUrls was first set) so the next
-  // boot picks up the values we just saved.
+  await setSettings({ consensusRpc: consensusUrl, checkpoint });
+
+  // Tear down any in-flight boot so the next one picks up the new config.
   try {
     await chrome.runtime.sendMessage({ type: "shutdown-helios" });
   } catch {
     /* best-effort */
   }
-  showStep(4);
-  void startHelios();
-});
 
-// --- Step 4: Helios sync ---
-const heliosDot = document.getElementById("helios-dot") as HTMLSpanElement;
-const heliosText = document.getElementById("helios-status-text") as HTMLSpanElement;
-const finishBtn = document.getElementById("finish") as HTMLButtonElement;
+  // Reset UI back to "starting"
+  syncTitle.textContent = "Starting Helios";
+  syncLede.textContent = "Retrying with updated consensus RPC…";
+  syncRecovery.hidden = true;
+  finishBtn.disabled = true;
+  void startHelios();
+}
+
+advApplyBtn.addEventListener("click", () => {
+  const consensusUrl = advConsensusInput.value.trim() || DEFAULT_CONSENSUS_RPC;
+  let checkpoint: string | undefined = advCheckpointInput.value.trim() || undefined;
+  if (checkpoint && !checkpoint.startsWith("0x")) checkpoint = "0x" + checkpoint;
+  void applyConsensus(consensusUrl, checkpoint);
+});
 
 function renderHelios(status: HeliosStatus | null) {
   heliosDot.classList.remove("ok", "bad");
+
   if (!status) {
-    heliosText.textContent = "unknown";
+    heliosText.textContent = "waiting…";
     return;
   }
   switch (status.state) {
@@ -214,19 +241,35 @@ function renderHelios(status: HeliosStatus | null) {
       heliosText.textContent = "not yet started";
       break;
     case "booting":
-      heliosText.textContent = "booting Helios WASM…";
+      heliosText.textContent = "Booting Helios WASM…";
       break;
     case "syncing":
-      heliosText.textContent = "syncing with Ethereum consensus…";
+      heliosText.textContent = "Syncing with Ethereum consensus…";
       break;
     case "synced":
-      heliosText.textContent = `synced · exec RPC ${status.executionRpc ?? "—"}`;
+      heliosText.textContent = "Synced · verifying on-chain reads locally";
       heliosDot.classList.add("ok");
+      syncTitle.textContent = "You're all set";
+      syncLede.textContent =
+        "Helios is synced. Finish to open your settings dashboard.";
+      syncRecovery.hidden = true;
       finishBtn.disabled = false;
+      if (!persistedComplete) {
+        persistedComplete = true;
+        void setSettings({
+          onboardingComplete: true,
+          interceptEthLimo: lastIpfsOk,
+        });
+      }
       break;
     case "error":
-      heliosText.textContent = `error: ${status.error ?? "unknown"}`;
+      heliosText.textContent = `Sync failed: ${status.error ?? "unknown error"}`;
       heliosDot.classList.add("bad");
+      syncTitle.textContent = "Couldn't reach consensus";
+      syncLede.textContent =
+        "Helios couldn't start with the current beacon-chain RPC. Try another one below.";
+      syncRecovery.hidden = false;
+      finishBtn.disabled = true;
       break;
   }
 }
@@ -234,12 +277,12 @@ function renderHelios(status: HeliosStatus | null) {
 async function startHelios() {
   // Explicitly ask the SW to boot Helios. The SW's implicit boot via
   // onSettingsChanged only fires when rpcUrls[0] actually changes, so on a
-  // page reload, a back→forward through the wizard, or a consensus-RPC-only
-  // edit it would never fire and step 4 would poll "not yet started" forever.
+  // page reload or a consensus-RPC-only edit it would never fire and step 3
+  // would poll "not yet started" forever.
   chrome.runtime.sendMessage({ type: "boot-helios" }).catch(() => {
     /* status poll below will surface any error */
   });
-  while (currentStep === 4) {
+  while (currentStep === 3) {
     try {
       const resp = await chrome.runtime.sendMessage({
         type: "get-helios-status",
@@ -253,37 +296,38 @@ async function startHelios() {
 }
 
 finishBtn.addEventListener("click", async () => {
-  // Default eth.limo / eth.link interception only when Kubo was reachable at
-  // onboarding. If the user starts without IPFS, leaving the rule on would
-  // silently break every such link in their browser — the interception would
-  // rewrite to .eth, then resolution would fail at the gateway probe.
-  await setSettings({
-    onboardingComplete: true,
-    interceptEthLimo: lastIpfsOk,
-  });
+  // State was already persisted the moment Helios reached "synced" (see
+  // renderHelios). Belt-and-suspenders: re-save in case the user somehow
+  // clicked Finish before the sync branch ran, then redirect to options.
+  if (!persistedComplete) {
+    persistedComplete = true;
+    await setSettings({
+      onboardingComplete: true,
+      interceptEthLimo: lastIpfsOk,
+    });
+  }
   const url = chrome.runtime.getURL("options.html");
   location.replace(url);
 });
 
-const syncBack = document.getElementById("sync-back") as HTMLButtonElement;
 syncBack.addEventListener("click", async () => {
-  // Tear down any in-flight Helios boot so the next attempt picks up the new
-  // advanced settings cleanly.
+  // Tear down any in-flight Helios boot so returning to step 2 doesn't leave
+  // a zombie sync running against a stale URL.
   try {
     await chrome.runtime.sendMessage({ type: "shutdown-helios" });
   } catch {
     /* best-effort */
   }
-  showStep(3);
+  showStep(2);
 });
 
 // --- Init ---
 (async () => {
   await probeIpfs();
   const s = await getSettings();
-  if (s.rpcUrls.length > 0) {
-    // Already has some RPC — let user skip ahead once IPFS passes.
-  }
+  // Prefill the advanced fields in case the user already has custom values.
+  advConsensusInput.value = s.consensusRpc ?? "";
+  advCheckpointInput.value = s.checkpoint ?? "";
 })();
 
 showStep(1);
