@@ -1,5 +1,5 @@
 export type Settings = {
-  rpcUrls: string[];
+  rpcUrl?: string;
   consensusRpc?: string;
   checkpoint?: string;
   onboardingComplete?: boolean;
@@ -14,14 +14,20 @@ export type Settings = {
 const KEY = "settings";
 
 const DEFAULT: Settings = {
-  rpcUrls: [],
   onboardingComplete: false,
   interceptEthLimo: true,
 };
 
 export async function getSettings(): Promise<Settings> {
   const raw = await chrome.storage.local.get(KEY);
-  return { ...DEFAULT, ...(raw[KEY] ?? {}) };
+  const stored = (raw[KEY] ?? {}) as Partial<Settings> & { rpcUrls?: string[] };
+  // Legacy installs stored a prioritized list. Only the first entry was ever
+  // used, so collapse to the single field and drop the rest.
+  if (stored.rpcUrl == null && Array.isArray(stored.rpcUrls) && stored.rpcUrls[0]) {
+    stored.rpcUrl = stored.rpcUrls[0];
+  }
+  delete stored.rpcUrls;
+  return { ...DEFAULT, ...stored };
 }
 
 export async function setSettings(next: Partial<Settings>): Promise<Settings> {

@@ -70,9 +70,9 @@ async function ensureHostPermission(url: string): Promise<void> {
 }
 
 export async function ensureHeliosBooted(): Promise<HeliosStatus> {
-  const { rpcUrls, consensusRpc } = await getSettings();
-  const executionRpc = rpcUrls[0];
-  if (!executionRpc) throw new Error("No Ethereum RPC configured.");
+  const { rpcUrl, consensusRpc } = await getSettings();
+  if (!rpcUrl) throw new Error("No Ethereum RPC configured.");
+  const executionRpc = rpcUrl;
   const consensus = consensusRpc || DEFAULT_CONSENSUS_RPC;
 
   await ensureHostPermission(executionRpc);

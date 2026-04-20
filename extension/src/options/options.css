@@ -183,113 +183,7 @@ a:hover { color: var(--brand-300); }
   50%      { opacity: 0.4; }
 }
 
-/* ---------- RPC list ---------- */
-.rpc-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.rpc-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px 14px;
-  align-items: center;
-  padding: 14px 16px 14px 18px;
-  background: var(--bg-card-soft);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--border-strong);
-  border-radius: 8px;
-  transition: background-color 150ms, border-color 150ms;
-}
-
-.rpc-row:hover {
-  background: rgba(39, 39, 42, 0.35);
-  border-color: var(--border-strong);
-}
-
-.rpc-row.primary {
-  border-left-color: var(--brand-500);
-}
-
-.rpc-row .rank {
-  font-family: "SF Mono", Menlo, Monaco, ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 3px 9px;
-  border-radius: 4px;
-  background: var(--bg-hover);
-  color: var(--text-muted);
-}
-
-.rpc-row.primary .rank {
-  background: var(--brand-tint-bg);
-  color: var(--brand-300);
-  border: 1px solid var(--brand-tint-border);
-}
-
-.rpc-row .url {
-  font-family: "SF Mono", Menlo, Monaco, ui-monospace, monospace;
-  font-size: 12px;
-  color: var(--text-body);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rpc-row .actions {
-  display: flex;
-  gap: 4px;
-}
-
-.rpc-row .stats {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  font-size: 11.5px;
-  padding-top: 12px;
-  margin-top: 4px;
-  border-top: 1px solid var(--border);
-}
-
-.rpc-row .stats .k {
-  color: var(--text-subtle);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-bottom: 3px;
-}
-
-.rpc-row .stats .v {
-  font-family: "SF Mono", Menlo, Monaco, ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-body);
-  font-size: 13px;
-}
-
-.rpc-row .stats .v.bad { color: var(--rose-400); }
-.rpc-row .stats .v.ok  { color: var(--brand-300); }
-
-.rpc-row .last-failure {
-  grid-column: 1 / -1;
-  font-family: "SF Mono", Menlo, Monaco, ui-monospace, monospace;
-  font-size: 11px;
-  color: var(--rose-300);
-  background: var(--rose-950);
-  border: 1px solid var(--rose-900);
-  border-radius: 6px;
-  padding: 7px 10px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ---------- Icon buttons (row controls) ---------- */
+/* ---------- Icon buttons ---------- */
 button.icon {
   all: unset;
   box-sizing: border-box;
@@ -326,17 +220,6 @@ button.icon svg {
   width: 15px;
   height: 15px;
   display: block;
-}
-
-.rpc-row .url.masked {
-  color: var(--text-muted);
-  letter-spacing: 0.02em;
-}
-
-/* ---------- Add-form ---------- */
-form#rpc-add {
-  display: flex;
-  gap: 10px;
 }
 
 input[type="url"],
@@ -510,16 +393,6 @@ button.primary:active {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.55;
-}
-
-.empty {
-  padding: 24px 16px;
-  color: var(--text-subtle);
-  text-align: center;
-  font-size: 12.5px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  background: var(--bg-card-soft);
 }
 
 .built-by {

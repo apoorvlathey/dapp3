@@ -1,5 +1,5 @@
 import "@/lib/sw-dom-shim";
-import { resolveEns, getOrStartHelios, probeRpc } from "@/lib/resolver";
+import { resolveEns, getOrStartHelios } from "@/lib/resolver";
 import { buildSubdomainUrl, parseGatewayHost } from "@/lib/gateway";
 import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
@@ -464,14 +464,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg?.type === "probe-rpc" && typeof msg.url === "string") {
-    probeRpc(msg.url).then(
-      (res) => sendResponse(res),
-      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
-    );
-    return true;
-  }
-
   if (msg?.type === "shutdown-helios") {
     shutdownHelios().then(() => sendResponse({ ok: true }));
     return true;
@@ -522,7 +514,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "open-options") {
     (async () => {
       const s = await getSettings();
-      if (!s.onboardingComplete && s.rpcUrls.length === 0) {
+      if (!s.onboardingComplete && !s.rpcUrl) {
         await chrome.tabs.create({
           url: chrome.runtime.getURL("onboarding.html"),
         });
@@ -561,21 +553,21 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   }
 });
 
-// When the active execution RPC changes (user reorders / removes / adds a new
-// primary), tear down Helios so the next resolve boots it against the new URL.
-// Also keep the eth.limo DNR rule in sync with the user's preference.
-let activePrimaryRpc: string | undefined;
+// When the execution RPC changes, tear down Helios so the next resolve boots
+// it against the new URL. Also keep the eth.limo DNR rule in sync with the
+// user's preference.
+let activeRpc: string | undefined;
 let activeInterceptEthLimo: boolean | undefined;
 let activeOnboardingComplete: boolean | undefined;
 getSettings().then((s) => {
-  activePrimaryRpc = s.rpcUrls[0];
+  activeRpc = s.rpcUrl;
   activeInterceptEthLimo = s.interceptEthLimo;
   activeOnboardingComplete = !!s.onboardingComplete;
 });
 onSettingsChanged((s) => {
-  const next = s.rpcUrls[0];
-  if (next !== activePrimaryRpc) {
-    activePrimaryRpc = next;
+  const next = s.rpcUrl;
+  if (next !== activeRpc) {
+    activeRpc = next;
     shutdownHelios()
       .then(() => getOrStartHelios().catch(() => undefined))
       .catch(() => undefined);

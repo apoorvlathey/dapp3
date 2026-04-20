@@ -132,8 +132,8 @@ rpcForm.addEventListener("submit", async (e) => {
     return;
   }
   rpcInput.classList.remove("invalid");
-  const cur = await getSettings();
-  const consensus = cur.consensusRpc || DEFAULT_CONSENSUS_RPC;
+  const { consensusRpc } = await getSettings();
+  const consensus = consensusRpc || DEFAULT_CONSENSUS_RPC;
   const origins = [`${parsed.origin}/*`];
   try {
     origins.push(new URL(consensus).origin + "/*");
@@ -147,8 +147,7 @@ rpcForm.addEventListener("submit", async (e) => {
     );
     return;
   }
-  const existing = cur.rpcUrls.filter((u) => u !== url);
-  await setSettings({ rpcUrls: [url, ...existing] });
+  await setSettings({ rpcUrl: url });
   showStep(3);
   void startHelios();
 });
@@ -276,9 +275,9 @@ function renderHelios(status: HeliosStatus | null) {
 
 async function startHelios() {
   // Explicitly ask the SW to boot Helios. The SW's implicit boot via
-  // onSettingsChanged only fires when rpcUrls[0] actually changes, so on a
-  // page reload or a consensus-RPC-only edit it would never fire and step 3
-  // would poll "not yet started" forever.
+  // onSettingsChanged only fires when the execution rpcUrl actually changes,
+  // so on a page reload or a consensus-RPC-only edit it would never fire and
+  // step 3 would poll "not yet started" forever.
   chrome.runtime.sendMessage({ type: "boot-helios" }).catch(() => {
     /* status poll below will surface any error */
   });

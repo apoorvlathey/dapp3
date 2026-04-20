@@ -107,7 +107,7 @@ async function pollHelios() {
 document.getElementById("open-options")?.addEventListener("click", async () => {
   const s = await getSettings();
   const url =
-    !s.onboardingComplete && s.rpcUrls.length === 0
+    !s.onboardingComplete && !s.rpcUrl
       ? chrome.runtime.getURL("onboarding.html")
       : chrome.runtime.getURL("options.html");
   await chrome.tabs.create({ url });

@@ -19,20 +19,31 @@
       <p class="sub">Your local-first ENS gateway.</p>
 
       <section>
-        <h2>Ethereum RPC endpoints</h2>
+        <h2>Ethereum RPC endpoint</h2>
         <p class="hint">
-          Helios uses the <em>first</em> RPC for execution reads. Reorder to
-          swap — the light client reboots on a primary change.
+          Helios uses this endpoint for execution reads. Saving a new URL
+          reboots the light client.
         </p>
-        <div id="rpc-list" class="rpc-list"></div>
-        <form id="rpc-add">
-          <input
-            type="url"
-            name="url"
-            placeholder="https://your-rpc.example/…"
-            required
-          />
-          <button type="submit">Add</button>
+        <form id="rpc-form" class="consensus-form">
+          <div class="input-row">
+            <input
+              type="url"
+              id="rpc-input"
+              placeholder="https://your-rpc.example/…"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+            <button
+              type="button"
+              id="rpc-reveal"
+              class="icon"
+              title="Edit URL"
+              aria-label="Edit URL"
+            ></button>
+            <button type="submit" id="rpc-apply">Save</button>
+          </div>
+          <p class="hint" id="rpc-status"></p>
         </form>
       </section>
 

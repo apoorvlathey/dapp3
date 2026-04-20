@@ -16,11 +16,6 @@ import {
   getHeliosStatus,
 } from "@/lib/helios-client";
 import type { HeliosStatus } from "@/lib/helios-bridge";
-import {
-  classifyError,
-  recordFailure,
-  recordSuccess,
-} from "@/lib/rpc-stats";
 
 const RESOLVER_ABI = parseAbi([
   "function contenthash(bytes32 node) view returns (bytes)",
@@ -85,12 +80,11 @@ export async function resolveEns(
     return { ok: false, error: `not a .eth name: ${name}` };
   }
 
-  const { rpcUrls } = await getSettings();
-  const rpc = rpcUrls[0];
-  if (!rpc) {
+  const { rpcUrl } = await getSettings();
+  if (!rpcUrl) {
     return {
       ok: false,
-      error: "No Ethereum RPC configured. Add one in the extension options.",
+      error: "No Ethereum RPC configured. Set one in the extension options.",
     };
   }
 
@@ -98,7 +92,7 @@ export async function resolveEns(
   let trustedDirectly = false;
 
   if (opts.bypassHelios) {
-    client = getDirectClient(rpc);
+    client = getDirectClient(rpcUrl);
     trustedDirectly = true;
   } else {
     try {
@@ -118,27 +112,13 @@ export async function resolveEns(
     }
   }
 
-  const start = performance.now();
-  const report = async (
-    kind: "success" | "failure",
-    err?: { reason: string; kind: ReturnType<typeof classifyError>["kind"] },
-  ) => {
-    if (kind === "success") {
-      await recordSuccess(rpc, performance.now() - start);
-    } else if (err) {
-      await recordFailure(rpc, err.kind, err.reason);
-    }
-  };
-
   let resolverAddress: `0x${string}`;
   try {
     resolverAddress = (await client.getEnsResolver({
       name: lower,
     })) as `0x${string}`;
   } catch (e) {
-    const c = classifyError(e);
-    await report("failure", c);
-    return { ok: false, error: `No ENS resolver for ${lower}: ${c.reason}` };
+    return { ok: false, error: `No ENS resolver for ${lower}: ${describe(e)}` };
   }
 
   let raw: `0x${string}`;
@@ -150,16 +130,13 @@ export async function resolveEns(
       args: [namehash(lower)],
     });
   } catch (e) {
-    const c = classifyError(e);
-    await report("failure", c);
     return {
       ok: false,
-      error: `Failed to read contenthash for ${lower}: ${c.reason}`,
+      error: `Failed to read contenthash for ${lower}: ${describe(e)}`,
     };
   }
 
   if (!raw || raw === "0x") {
-    await report("success");
     return { ok: false, error: `${lower} has no contenthash set.` };
   }
 
@@ -169,19 +146,16 @@ export async function resolveEns(
     codec = getCodec(raw);
     decoded = decodeContentHash(raw);
   } catch (e) {
-    await report("success"); // RPC side worked; decode is a local issue
     return { ok: false, error: `Cannot decode contenthash: ${describe(e)}` };
   }
 
   if (codec !== "ipfs" && codec !== "ipns") {
-    await report("success");
     return {
       ok: false,
       error: `Unsupported contenthash codec "${codec}". v1 supports ipfs / ipns only.`,
     };
   }
 
-  await report("success");
   return {
     ok: true,
     kind: codec,
@@ -189,29 +163,6 @@ export async function resolveEns(
     ensName: lower,
     trustedDirectly,
   };
-}
-
-export async function probeRpc(url: string): Promise<{
-  ok: boolean;
-  latencyMs?: number;
-  blockNumber?: bigint;
-  error?: string;
-}> {
-  const client = createPublicClient({
-    chain: mainnet,
-    transport: http(url, { retryCount: 0, timeout: 6_000 }),
-  });
-  const start = performance.now();
-  try {
-    const blockNumber = await client.getBlockNumber();
-    const latencyMs = performance.now() - start;
-    await recordSuccess(url, latencyMs);
-    return { ok: true, latencyMs, blockNumber };
-  } catch (e) {
-    const c = classifyError(e);
-    await recordFailure(url, c.kind, c.reason);
-    return { ok: false, error: c.reason };
-  }
 }
 
 function describe(e: unknown): string {
