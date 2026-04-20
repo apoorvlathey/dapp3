@@ -11,6 +11,14 @@ const reasonEl = document.getElementById("reason") as HTMLPreElement;
 const inputEl = document.getElementById("urlinput") as HTMLDivElement;
 
 reasonEl.textContent = reason;
+
+const ensHistoryEl = document.getElementById(
+  "ensHistory",
+) as HTMLAnchorElement;
+if (ensName && /^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) {
+  ensHistoryEl.href = `https://ens.eth.sh/history/${ensName}`;
+  ensHistoryEl.hidden = false;
+}
 document.title = ensName
   ? `${ensName} · resolution failed`
   : "dapp3.eth · resolution failed";

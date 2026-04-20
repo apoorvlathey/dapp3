@@ -228,7 +228,8 @@ body {
   justify-self: end;
 }
 
-button.ghost {
+button.ghost,
+a.ghost {
   all: unset;
   box-sizing: border-box;
   cursor: pointer;
@@ -240,9 +241,13 @@ button.ghost {
   border: 1px solid var(--border);
   background: transparent;
   transition: background-color 150ms, color 150ms, border-color 150ms;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 
-button.ghost:hover {
+button.ghost:hover,
+a.ghost:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }

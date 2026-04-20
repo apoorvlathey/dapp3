@@ -61,6 +61,14 @@ const errorDetailEl = document.getElementById("errorDetail") as HTMLPreElement;
 const ethlimoFallbackEl = document.getElementById(
   "ethlimoFallback",
 ) as HTMLAnchorElement;
+const ensHistoryEl = document.getElementById(
+  "ensHistory",
+) as HTMLAnchorElement;
+
+if (ensName && /^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) {
+  ensHistoryEl.href = `https://ens.eth.sh/history/${ensName}`;
+  ensHistoryEl.hidden = false;
+}
 
 // Mechanically derive `<name>.eth.limo` from the ENS target so the user has a
 // way out if Helios sync or the local resolve never succeeds. Only shown on a

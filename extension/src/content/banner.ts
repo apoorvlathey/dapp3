@@ -100,6 +100,7 @@ type Refs = {
   urlInput: HTMLElement;
   starBtn: HTMLButtonElement;
   bookmarksBtn: HTMLButtonElement;
+  ensHistoryLink: HTMLAnchorElement;
   menuBtn: HTMLButtonElement;
   menu: HTMLDivElement;
   copyItem: HTMLButtonElement;
@@ -258,15 +259,18 @@ function buildBanner(): Refs {
       transition: background-color 150ms, color 150ms;
     }
     .menu-btn:hover { background: #27272a; color: #f4f4f5; }
-    .bookmarks-btn {
+    .bookmarks-btn,
+    .ens-history-link {
       all: unset;
       display: inline-flex; align-items: center;
       height: 22px; padding: 0 10px; border-radius: 4px;
       color: #a1a1aa; cursor: pointer;
       font: 500 11px/1 inherit;
       transition: background-color 150ms, color 150ms;
+      text-decoration: none;
     }
-    .bookmarks-btn:hover { background: #27272a; color: #f4f4f5; }
+    .bookmarks-btn:hover,
+    .ens-history-link:hover { background: #27272a; color: #f4f4f5; }
     .menu {
       position: absolute; top: calc(100% + 4px); right: 0;
       display: none; min-width: 220px;
@@ -365,6 +369,7 @@ function buildBanner(): Refs {
     </div>
     <span class="right">
       <span class="toast">copied</span>
+      <a class="ens-history-link" target="_blank" rel="noopener noreferrer" title="View ENS History">View ENS History</a>
       <button class="bookmarks-btn" type="button" title="All Bookmarks">All Bookmarks</button>
       <span class="menu-wrap">
         <button class="menu-btn" type="button" aria-label="banner menu" title="Banner options">⋯</button>
@@ -406,6 +411,7 @@ function buildBanner(): Refs {
     urlInput: q<HTMLElement>(".urlfield"),
     starBtn: q<HTMLButtonElement>(".star-btn"),
     bookmarksBtn: q<HTMLButtonElement>(".bookmarks-btn"),
+    ensHistoryLink: q<HTMLAnchorElement>(".ens-history-link"),
     menuBtn: q<HTMLButtonElement>(".menu-btn"),
     menu: q<HTMLDivElement>(".menu"),
     copyItem: q<HTMLButtonElement>('button[data-act="copy"]'),
@@ -669,6 +675,8 @@ async function mount(ctx: TabContext) {
 
   const currentUrlValue = () => `${ctx.ensName}${currentPath()}`;
   const field = wireAddressBar(refs, currentUrlValue);
+
+  refs.ensHistoryLink.href = `https://ens.eth.sh/history/${ctx.ensName.toLowerCase()}`;
 
   const render = () => {
     const { dot, label, title } = pickDot(ctx, currentStatus);

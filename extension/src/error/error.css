@@ -147,7 +147,32 @@ main {
   75%      { transform: translateX(3px); }
 }
 
-.topbar-spacer { grid-column: 3; }
+.topbar-spacer {
+  grid-column: 3;
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+a.ens-history-link {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-body);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 150ms, border-color 150ms, color 150ms;
+}
+
+a.ens-history-link:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 
 .error-label {
   display: inline-block;
