@@ -63,15 +63,16 @@
           <span class="section-label">REDIRECTS</span>
         </div>
         <p class="hint">
-          When on, navigations to <code>*.eth.limo</code> are rewritten to the
-          underlying <code>.eth</code> name and resolved locally — same trust
-          path as typing the name directly. Turn off if you'd rather use the
-          public eth.limo gateway.
+          When on, navigations to <code>*.eth.limo</code> and
+          <code>*.eth.link</code> are rewritten to the underlying
+          <code>.eth</code> name and resolved locally — same trust path as
+          typing the name directly. Turn off if you'd rather use the public
+          gateways.
         </p>
         <label class="toggle-row" for="intercept-ethlimo">
           <input type="checkbox" id="intercept-ethlimo" />
           <span class="toggle-text">
-            <span class="toggle-title">Intercept eth.limo links</span>
+            <span class="toggle-title">Intercept eth.limo / eth.link links</span>
             <span class="toggle-sub" id="intercept-ethlimo-sub">
               Requires a working local IPFS node. Failed resolutions show a
               one-click fallback to the public eth.limo gateway.

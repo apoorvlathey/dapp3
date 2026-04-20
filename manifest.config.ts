@@ -52,10 +52,12 @@ export default defineManifest({
     // "site can't be reached" page. DNR redirects need host access to the
     // target URL; without this, the rule silently no-ops.
     "*://*.eth/*",
-    // Same reason for the optional `*.eth.limo` interception (toggle in
-    // settings). The DNR rule rewrites `<x>.eth.limo` → `<x>.eth`; without
-    // host access to the request URL the redirect is a silent no-op.
+    // Same reason for the optional `*.eth.limo` / `*.eth.link` interception
+    // (toggle in settings). The DNR rule rewrites `<x>.eth.limo` /
+    // `<x>.eth.link` → `<x>.eth`; without host access to the request URL the
+    // redirect is a silent no-op.
     "*://*.eth.limo/*",
+    "*://*.eth.link/*",
   ],
   optional_host_permissions: ["https://*/*", "http://*/*"],
   content_security_policy: {

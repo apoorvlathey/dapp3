@@ -35,7 +35,7 @@ const ipfsRecheck = document.getElementById("ipfs-recheck") as HTMLButtonElement
 
 // Tracks the most recent IPFS probe result so the finish handler can persist
 // `interceptEthLimo` accurately. Defaults to false so a user who never makes
-// it through step 1 never has eth.limo interception silently enabled.
+// it through step 1 never has eth.limo / eth.link interception silently enabled.
 let lastIpfsOk = false;
 
 async function probeIpfs(): Promise<boolean> {
@@ -253,10 +253,10 @@ async function startHelios() {
 }
 
 finishBtn.addEventListener("click", async () => {
-  // Default eth.limo interception only when Kubo was reachable at onboarding.
-  // If the user starts without IPFS, leaving the rule on would silently break
-  // every eth.limo link in their browser — the interception would rewrite to
-  // .eth, then resolution would fail at the gateway probe.
+  // Default eth.limo / eth.link interception only when Kubo was reachable at
+  // onboarding. If the user starts without IPFS, leaving the rule on would
+  // silently break every such link in their browser — the interception would
+  // rewrite to .eth, then resolution would fail at the gateway probe.
   await setSettings({
     onboardingComplete: true,
     interceptEthLimo: lastIpfsOk,

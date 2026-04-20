@@ -3,10 +3,11 @@ export type Settings = {
   consensusRpc?: string;
   checkpoint?: string;
   onboardingComplete?: boolean;
-  // Intercept `*.eth.limo` navigations and route them through local resolution
-  // (Helios + Kubo) instead of the public eth.limo gateway. Default true; gets
-  // forced false at onboarding if Kubo isn't reachable, since intercepting
-  // without a working IPFS node would just break eth.limo links for the user.
+  // Intercept `*.eth.limo` and `*.eth.link` navigations and route them through
+  // local resolution (Helios + Kubo) instead of the public gateways. Default
+  // true; gets forced false at onboarding if Kubo isn't reachable, since
+  // intercepting without a working IPFS node would just break those links for
+  // the user. Name is historical — it governs both eth.limo and eth.link.
   interceptEthLimo: boolean;
 };
 

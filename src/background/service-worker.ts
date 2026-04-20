@@ -66,11 +66,11 @@ async function installEthRedirectRule() {
 }
 
 async function syncEthLimoRedirectRule(enabled: boolean) {
-  // Rewrites `https?://<label>.eth.limo[:port][/path]` →
+  // Rewrites `https?://<label>.eth.(limo|link)[:port][/path]` →
   // `http://<label>.eth[/path]`. The existing .eth rule then catches the
   // result and routes through the interstitial → resolver → gateway flow,
   // so the user gets local Helios-verified content instead of the public
-  // (and currently flaky / WAF-403-ing) eth.limo gateway.
+  // (and currently flaky / WAF-403-ing) eth.limo / eth.link gateways.
   if (!enabled) {
     await chrome.declarativeNetRequest.updateDynamicRules({
       removeRuleIds: [ETH_LIMO_REDIRECT_RULE_ID],
@@ -93,7 +93,7 @@ async function syncEthLimoRedirectRule(enabled: boolean) {
         },
         condition: {
           regexFilter:
-            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.limo(?::\\d+)?(/.*)?$",
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.(?:limo|link)(?::\\d+)?(/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
