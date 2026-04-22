@@ -4,6 +4,13 @@
 
 <p align="center">
   <a href="https://dapp3.eth.link"><strong>dapp3.eth.link →</strong></a>
+  &nbsp;&nbsp;
+  <a href="https://chromewebstore.google.com/detail/dapp3eth/gagojfdpbmahciaapdcejmmaeehgpmib">
+    <img
+      alt="Download from Chrome Web Store"
+      src="https://img.shields.io/badge/Chrome%20Web%20Store-Download-4285F4?logo=googlechrome&logoColor=white"
+    />
+  </a>
 </p>
 
 **Open `.eth` websites like any other, verified locally.**
@@ -61,7 +68,7 @@ Bookmarks view (`dapp3.eth` internal page):
 
 ## Install
 
-Grab the packaged build from the [Chrome Web Store](https://chromewebstore.google.com/) *(listing pending)*, or load an unpacked build yourself (see below).
+Grab the packaged build from the [Chrome Web Store](https://chromewebstore.google.com/detail/dapp3eth/gagojfdpbmahciaapdcejmmaeehgpmib), or load an unpacked build yourself (see below).
 
 ## Build from source
 
@@ -105,4 +112,3 @@ IMPLEMENTATION.md Runtime model, Helios gotchas, landmines
 PRIVACY_POLICY.md
 PUBLISHING.md     Chrome Web Store release flow
 ```
-
