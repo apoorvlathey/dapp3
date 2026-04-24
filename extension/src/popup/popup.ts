@@ -1,6 +1,6 @@
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { getSettings } from "@/lib/settings";
-import { getIpfsGatewayConfig } from "@/lib/gateway";
+import type { IpfsGatewayConfig } from "@/lib/gateway";
 
 const ipfsEl = document.getElementById("ipfs-status") as HTMLSpanElement;
 const ipfsDot = document.getElementById("ipfs-dot") as HTMLSpanElement;
@@ -23,8 +23,13 @@ function setStatus(el: HTMLSpanElement, kind: "ok" | "bad" | "idle") {
   if (kind !== "idle") el.classList.add(kind);
 }
 
+function defaultGatewayConfig(): IpfsGatewayConfig {
+  return { protocol: "http:", host: "localhost", port: 8080 };
+}
+
 async function probeIpfs() {
-  const config = getIpfsGatewayConfig();
+  const s = await getSettings();
+  const config: IpfsGatewayConfig = s.ipfsGateway ?? defaultGatewayConfig();
   const probeUrl = `${config.protocol}//bafkqaaa.ipfs.${config.host}:${config.port}/`;
   try {
     await fetch(probeUrl, {
