@@ -1,5 +1,6 @@
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { getSettings } from "@/lib/settings";
+import { getIpfsGatewayConfig } from "@/lib/gateway";
 
 const ipfsEl = document.getElementById("ipfs-status") as HTMLSpanElement;
 const ipfsDot = document.getElementById("ipfs-dot") as HTMLSpanElement;
@@ -23,8 +24,10 @@ function setStatus(el: HTMLSpanElement, kind: "ok" | "bad" | "idle") {
 }
 
 async function probeIpfs() {
+  const config = getIpfsGatewayConfig();
+  const probeUrl = `${config.protocol}//bafkqaaa.ipfs.${config.host}:${config.port}/`;
   try {
-    await fetch("http://bafkqaaa.ipfs.localhost:8080/", {
+    await fetch(probeUrl, {
       mode: "no-cors",
       // Gateway returns `Cache-Control: immutable, max-age=1y` for this CID,
       // so without `no-store` Chrome can serve a stale success long after
@@ -32,11 +35,11 @@ async function probeIpfs() {
       cache: "no-store",
       signal: AbortSignal.timeout(1500),
     });
-    ipfsEl.textContent = "online";
+    ipfsEl.textContent = `${config.host}:${config.port}`;
     setStatus(ipfsEl, "ok");
     setDot(ipfsDot, "ok");
   } catch {
-    ipfsEl.textContent = "offline";
+    ipfsEl.textContent = `${config.host}:${config.port}`;
     setStatus(ipfsEl, "bad");
     setDot(ipfsDot, "bad");
   }
