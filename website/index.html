@@ -6,7 +6,7 @@
     <title>dapp3.eth · resolve .eth domains, verified locally</title>
     <meta
       name="description"
-      content="A browser extension that resolves .eth names directly against Ethereum state via a local light client, and serves content from your own IPFS node. No gateway. No trust."
+      content="A browser extension that resolves .eth names directly against Ethereum state via a local light client. Serves IPFS contenthash from your own node, or onchain HTML (ERC-4804) verified on your device. No gateway. No trust."
     />
 
     <meta property="og:type" content="website" />
@@ -61,15 +61,16 @@
       <section class="hero">
         <div class="hero-orb hero-orb-left" aria-hidden="true"></div>
         <div class="hero-orb hero-orb-right" aria-hidden="true"></div>
-        <span class="eyebrow">Uses IPFS Desktop + Helios Lightclient</span>
+        <span class="eyebrow">IPFS Desktop + Helios + ERC-4804</span>
         <h1>
           Open <code>.eth</code> websites like any other,
           <span class="accent">verified locally</span>.
         </h1>
         <p class="lede">
           A browser extension that resolves ENS names directly against Ethereum
-          state via a light client, and serves the content from your own IPFS
-          node. No public gateway. Nothing to trust in the middle.
+          state via a light client. Content comes from your own IPFS node, or
+          straight from the contract for onchain dapps. No public gateway.
+          Nothing to trust in the middle.
         </p>
         <div class="hero-actions">
           <a
@@ -138,7 +139,7 @@
               </div>
               <div class="trust-row">
                 <span>Site content</span>
-                <strong>Your local IPFS node</strong>
+                <strong>Local IPFS or onchain HTML</strong>
               </div>
               <div class="trust-row">
                 <span>Browser origin</span>
@@ -191,6 +192,92 @@
             </p>
           </li>
         </ol>
+      </section>
+
+      <!-- Onchain dapps (ERC-4804) -->
+      <section id="onchain" class="onchain">
+        <div class="section-heading">
+          <span class="section-kicker">ERC-4804 fallback</span>
+          <h2 class="section-title">Onchain dapps work too</h2>
+          <p class="section-sub">
+            Some of the most interesting <code>.eth</code> names don't point
+            at IPFS at all. They point at a contract that stores its own HTML
+            directly onchain. dapp3 follows the fallback automatically.
+          </p>
+        </div>
+
+        <div class="onchain-card">
+          <div class="onchain-flow" aria-hidden="true">
+            <div class="onchain-node">
+              <span class="onchain-node-tag">ENS</span>
+              <span class="onchain-node-title">No contenthash</span>
+              <span class="onchain-node-sub">Resolver returns a contract address</span>
+            </div>
+            <div class="onchain-arrow"></div>
+            <div class="onchain-node">
+              <span class="onchain-node-tag">Helios</span>
+              <span class="onchain-node-title"><code>request([])</code></span>
+              <span class="onchain-node-sub">Onchain HTML, proof checked end to end</span>
+            </div>
+            <div class="onchain-arrow"></div>
+            <div class="onchain-node">
+              <span class="onchain-node-tag">Kubo</span>
+              <span class="onchain-node-title">Pin &amp; serve</span>
+              <span class="onchain-node-sub">Same isolated <code>.ipfs.localhost</code> origin</span>
+            </div>
+          </div>
+
+          <div class="onchain-meta">
+            <div class="onchain-meta-block">
+              <span class="onchain-meta-label">How</span>
+              <p>
+                Bytes returned by an
+                <a
+                  href="https://eip.tools/eip/4804"
+                  target="_blank"
+                  rel="noopener"
+                  >ERC-4804</a
+                >
+                /
+                <a
+                  href="https://eip.tools/eip/5219"
+                  target="_blank"
+                  rel="noopener"
+                  >ERC-5219</a
+                >
+                contract are fetched via a Helios-verified
+                <code>eth_call</code>, sha256-fingerprinted, then pinned to your
+                local Kubo node. Repeat visits redirect synchronously off the
+                cached CID with stale-while-revalidate in the background.
+              </p>
+            </div>
+            <div class="onchain-meta-block">
+              <span class="onchain-meta-label">Try it</span>
+              <ul class="onchain-examples">
+                <li>
+                  <a
+                    href="https://zrouter.eth"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <span class="onchain-example-name">zRouter</span>
+                    <code>zrouter.eth</code>
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://0x000000f7f90708c034c854efd1d5bfe8e9079e32.w3eth.io/"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <span class="onchain-example-name">OFTScan</span>
+                    <code>0x000000f7…9e32.w3eth.io</code>
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Feature grid -->
@@ -302,6 +389,29 @@
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
+                <rect x="3" y="4" width="14" height="12" rx="2" />
+                <path d="M6 8 L8 10 L6 12" />
+                <path d="M11 12 H14" />
+              </svg>
+            </div>
+            <h3>Onchain dapps included</h3>
+            <p>
+              ENS names that resolve to an ERC-4804 contract render too. The
+              HTML is fetched via <code>eth_call</code>, pinned to your Kubo
+              node, and served from the same isolated origin. No w3eth.io.
+            </p>
+            <span class="feature-meta">ERC-4804 / ERC-5219</span>
+          </div>
+          <div class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M10 3 V10 L14 12" />
                 <circle cx="10" cy="10" r="7" />
               </svg>
@@ -371,6 +481,10 @@
             <div class="status-pill">
               <span class="dot ok"></span>
               Browser extension
+            </div>
+            <div class="status-pill">
+              <span class="dot ok"></span>
+              ERC-4804 fallback
             </div>
           </div>
 
