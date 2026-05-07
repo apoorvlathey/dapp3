@@ -1,6 +1,6 @@
 {
   "name": "dapp3",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Local-first ENS gateway browser extension (Helios + Kubo).",
   "private": true,
   "type": "module",
