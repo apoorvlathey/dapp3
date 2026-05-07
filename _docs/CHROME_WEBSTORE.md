@@ -17,11 +17,14 @@ dapp3.eth lets you open .eth websites in Chrome without trusting any gateway or 
 
 Type vitalik.eth in the address bar and dapp3.eth takes over: it looks up the ENS record on Ethereum mainnet using an Ethereum light client that runs locally inside the extension, gets the IPFS content hash for the site, and loads it from the IPFS node running on your own computer. No eth.limo. No ipfs.io. No third party in the middle.
 
+Onchain dapps work too. If the ENS name has no IPFS contenthash but resolves to an ERC-4804 / ERC-5219 contract (the kind that stores its HTML directly on Ethereum), dapp3.eth fetches the onchain HTML via a Helios-verified eth_call, pins it to your local Kubo node, and serves it from the same isolated origin. No w3eth.io, no w3link.io. The extension also intercepts navigations to 0x<addr>.w3eth.io so address-mode links resolve locally.
+
 == Why use it ==
 
 - No trusted gateway. Public ENS/IPFS gateways see every .eth site you visit, can show you the wrong site, and can disappear overnight (as eth.limo did). dapp3.eth removes them from the path entirely.
 - Verified against Ethereum itself. ENS lookups are verified by a built-in Helios light client, not taken on faith from an RPC provider.
 - Served from your own machine. Content loads from the Kubo IPFS node running on your computer, which you control.
+- Onchain HTML supported. ERC-4804 dapps (like zRouter) render the same way as IPFS sites, with their bytes verified end to end and pinned locally.
 - Private by design. No analytics, no telemetry, no accounts. Every endpoint the extension talks to is either on your own device or one you picked yourself.
 
 == What you need ==
