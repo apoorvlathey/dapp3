@@ -1,6 +1,14 @@
 export type Settings = {
   rpcUrl?: string;
   consensusRpc?: string;
+  // Optional list of additional beacon endpoints that must byte-equal agree
+  // with the primary `consensusRpc` on the finalized block root before Helios
+  // bootstraps. Defeats single-operator compromise of the bootstrap trust
+  // anchor: an attacker would have to control every configured beacon to
+  // forge it. Empty/undefined → today's behavior (single-source bootstrap).
+  // The user grants host permission per-entry when adding via the options
+  // page; the settings module just stores the URLs.
+  consensusVerifiers?: string[];
   checkpoint?: string;
   onboardingComplete?: boolean;
   // Intercept `*.eth.limo` and `*.eth.link` navigations and route them through

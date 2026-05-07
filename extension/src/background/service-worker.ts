@@ -91,7 +91,7 @@ async function installEthRedirectRule() {
         },
         condition: {
           // Any *.eth host (first-level or subdomain), any scheme/port, any path/query/fragment.
-          regexFilter: "^https?://(?:[a-z0-9-]+\\.)+eth(?::\\d+)?(?:/.*)?$",
+          regexFilter: "^https?://(?:[a-z0-9-]+\\.)+eth\\.?(?::\\d+)?(?:/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -141,7 +141,7 @@ async function syncW3EthRedirectRule(enabled: boolean) {
         },
         condition: {
           regexFilter:
-            "^https?://0x[a-f0-9]{40}\\.w3eth\\.io(?::\\d+)?(?:/.*)?$",
+            "^https?://0x[a-f0-9]{40}\\.w3eth\\.io\\.?(?::\\d+)?(?:/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -179,7 +179,7 @@ async function syncEthLimoRedirectRule(enabled: boolean) {
         },
         condition: {
           regexFilter:
-            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.(?:limo|link)(?::\\d+)?(/.*)?$",
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.(?:limo|link)\\.?(?::\\d+)?(/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -243,7 +243,7 @@ async function setEthLimoBypassTabs(tabIds: number[]) {
         action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
         condition: {
           regexFilter:
-            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.(?:limo|link)(?::\\d+)?(/.*)?$",
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.(?:limo|link)\\.?(?::\\d+)?(/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -294,7 +294,7 @@ async function setW3EthBypassDnrTabs(tabIds: number[]) {
         action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
         condition: {
           regexFilter:
-            "^https?://0x[a-f0-9]{40}\\.w3eth\\.io(?::\\d+)?(?:/.*)?$",
+            "^https?://0x[a-f0-9]{40}\\.w3eth\\.io\\.?(?::\\d+)?(?:/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -755,6 +755,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, error: "no tabId" });
       return false;
     }
+    // Defense-in-depth: senders today (banner / interstitial / error page)
+    // build this URL from a regex-validated ENS name, but a future bug that
+    // lets an attacker drive sendMessage with arbitrary contents would
+    // otherwise hand them an "navigate-anywhere" primitive via tabs.update.
+    if (
+      !/^https:\/\/(?:[a-z0-9-]+\.)+eth\.(?:limo|link)\.?(?::\d+)?(?:\/.*)?$/.test(
+        url,
+      )
+    ) {
+      sendResponse({ ok: false, error: "invalid url" });
+      return false;
+    }
     (async () => {
       try {
         // Install the per-tab ALLOW override *before* navigating so the DNR
@@ -777,6 +789,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const url = msg.url as string;
     if (tabId == null) {
       sendResponse({ ok: false, error: "no tabId" });
+      return false;
+    }
+    // Same defense-in-depth check as open-on-eth-limo: validate at the SW
+    // boundary so a future caller bug can't be parlayed into arbitrary
+    // tabs.update navigation.
+    if (
+      !/^https:\/\/0x[a-f0-9]{40}\.w3eth\.io\.?(?::\d+)?(?:\/.*)?$/i.test(url)
+    ) {
+      sendResponse({ ok: false, error: "invalid url" });
       return false;
     }
     // Sync bypass set first so onBeforeNavigate skips the JS redirect when the

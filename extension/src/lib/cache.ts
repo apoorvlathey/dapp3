@@ -26,6 +26,12 @@ export type CachedResolve = {
 
 const KEY = "resolveCache";
 
+// Bound the cache so a long-lived install (or a malicious page SPA-navigating
+// through `<rand>.eth` subdomains) can't grow the entry list without limit, and
+// so a Helios-down period doesn't keep serving an arbitrarily-old cached value.
+const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_ENTRIES = 500;
+
 type CacheMap = Record<string, CachedResolve>;
 
 async function readMap(): Promise<CacheMap> {
@@ -36,13 +42,26 @@ async function readMap(): Promise<CacheMap> {
 export async function getCached(name: string): Promise<CachedResolve | null> {
   const lower = name.toLowerCase();
   const map = await readMap();
-  return map[lower] ?? null;
+  const entry = map[lower];
+  if (!entry) return null;
+  if (Date.now() - entry.resolvedAt > MAX_AGE_MS) return null;
+  return entry;
 }
 
 export async function setCached(entry: CachedResolve): Promise<void> {
   const lower = entry.ensName.toLowerCase();
   const map = await readMap();
   map[lower] = { ...entry, ensName: lower };
+  const values = Object.values(map);
+  if (values.length > MAX_ENTRIES) {
+    const kept = values
+      .sort((a, b) => b.resolvedAt - a.resolvedAt)
+      .slice(0, MAX_ENTRIES);
+    const next: CacheMap = {};
+    for (const e of kept) next[e.ensName] = e;
+    await chrome.storage.local.set({ [KEY]: next });
+    return;
+  }
   await chrome.storage.local.set({ [KEY]: map });
 }
 

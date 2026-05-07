@@ -58,13 +58,13 @@
         <form id="consensus-form" class="consensus-form">
           <div class="consensus-head">
             <span class="meta-k">Consensus RPC</span>
-            <div class="chips" id="consensus-chips"></div>
           </div>
           <div class="input-row">
             <input
               type="url"
               id="consensus-input"
-              placeholder="https://your-beacon-api.example"
+              list="beacon-endpoints"
+              placeholder="Pick a known beacon, or type a custom URL"
               autocomplete="off"
               spellcheck="false"
             />
@@ -72,6 +72,65 @@
           </div>
           <p class="hint" id="consensus-status"></p>
         </form>
+
+        <details class="advanced-block">
+          <summary class="advanced-summary">Advanced</summary>
+          <div class="advanced-body">
+            <div class="advanced-section">
+              <div class="consensus-head">
+                <span class="meta-k">Verifier beacon RPCs (optional)</span>
+              </div>
+              <p class="hint">
+                When set, Helios bootstrap requires the finalized root to come
+                back byte-equal from the primary RPC <em>and</em> every
+                verifier. Defeats single-operator compromise of the bootstrap
+                anchor. Leave empty for today's single-source behavior.
+              </p>
+              <ul class="verifier-list" id="verifier-list"></ul>
+              <form id="verifier-form" class="consensus-form">
+                <div class="input-row">
+                  <input
+                    type="url"
+                    id="verifier-input"
+                    list="beacon-endpoints"
+                    placeholder="Pick a known beacon, or type a custom URL"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button type="submit" id="verifier-add">Add</button>
+                </div>
+                <p class="hint" id="verifier-status"></p>
+              </form>
+            </div>
+
+            <div class="advanced-section">
+              <div class="consensus-head">
+                <span class="meta-k">Pinned checkpoint root (optional)</span>
+              </div>
+              <p class="hint">
+                Lock Helios bootstrap to a specific finalized block root that
+                you've independently verified. Skips the live fetch from the
+                consensus RPC entirely. Leave empty to fetch a fresh root on
+                every boot.
+              </p>
+              <form id="checkpoint-form" class="consensus-form">
+                <div class="input-row">
+                  <input
+                    type="text"
+                    id="checkpoint-input"
+                    placeholder="0x… (32-byte hex)"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button type="submit" id="checkpoint-apply">Apply</button>
+                </div>
+                <p class="hint" id="checkpoint-status"></p>
+              </form>
+            </div>
+          </div>
+        </details>
+
+        <datalist id="beacon-endpoints"></datalist>
       </section>
 
       <section id="web3-section">

@@ -16,6 +16,10 @@ export type HeliosBootstrapMsg = {
   config: {
     executionRpc: string;
     consensusRpc?: string;
+    // Additional beacon RPCs that must byte-equal agree with the primary on
+    // the finalized root before bootstrap proceeds. Empty/undefined → no
+    // multi-source verification (single-source bootstrap, today's default).
+    consensusVerifiers?: string[];
     checkpoint?: string;
   };
 };

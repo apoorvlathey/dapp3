@@ -261,6 +261,12 @@ rpcForm.addEventListener("submit", async (e) => {
     rpcInput.focus();
     return;
   }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    rpcInput.classList.add("invalid");
+    rpcInput.focus();
+    alert("Only http:// or https:// URLs are accepted.");
+    return;
+  }
   rpcInput.classList.remove("invalid");
   const { consensusRpc } = await getSettings();
   const consensus = consensusRpc || DEFAULT_CONSENSUS_RPC;
@@ -320,7 +326,12 @@ renderConsensusChips();
 async function applyConsensus(consensusUrl: string, checkpoint: string | undefined) {
   // Ask for permission on the new host if we don't already have it.
   try {
-    const origin = new URL(consensusUrl).origin + "/*";
+    const parsed = new URL(consensusUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      alert("Only http:// or https:// URLs are accepted.");
+      return;
+    }
+    const origin = parsed.origin + "/*";
     const has = await chrome.permissions.contains({ origins: [origin] });
     if (!has) {
       const granted = await chrome.permissions.request({ origins: [origin] });

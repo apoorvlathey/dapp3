@@ -86,6 +86,61 @@ async function fetchFreshCheckpoint(consensusRpc: string): Promise<string> {
   );
 }
 
+// Multi-source bootstrap anchor verification (opt-in). When the user has
+// configured one or more verifier beacon RPCs in settings, the finalized root
+// must come back byte-equal from the primary AND every verifier before we
+// trust it. Defeats single-operator compromise of the bootstrap anchor — an
+// attacker would have to control every configured beacon to forge it. Fails
+// closed on disagreement or any individual fetch failure: a configured
+// verifier is a deliberate trust requirement, not an opportunistic one.
+//
+// Slot-boundary edge case: parallel fetches across different beacons can land
+// on either side of an epoch-boundary advance, producing a transient mismatch
+// even when both endpoints are honest. The caller is expected to retry in
+// that case (the fail-closed path returns a clear "disagreement" error and
+// the next user-triggered boot picks up the next finalized root).
+async function fetchAgreedCheckpoint(
+  primary: string,
+  verifiers: string[],
+): Promise<string> {
+  if (verifiers.length === 0) {
+    return fetchFreshCheckpoint(primary);
+  }
+  const sources = [primary, ...verifiers];
+  const settled = await Promise.allSettled(
+    sources.map(async (url) => ({
+      url,
+      root: await fetchFreshCheckpoint(url),
+    })),
+  );
+  const failures: string[] = [];
+  const roots: { url: string; root: string }[] = [];
+  for (const r of settled) {
+    if (r.status === "fulfilled") {
+      roots.push(r.value);
+    } else {
+      const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      failures.push(reason);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `Bootstrap anchor verification failed — ${failures.length} of ${sources.length} beacon endpoints did not respond. ` +
+        `When verifier RPCs are configured, every endpoint must answer. Failures: ${failures.join("; ")}`,
+    );
+  }
+  const [first, ...rest] = roots;
+  if (!first || rest.some((r) => r.root !== first.root)) {
+    const breakdown = roots.map((r) => `${r.url}=${r.root}`).join("; ");
+    throw new Error(
+      `Bootstrap anchor verification failed — beacon endpoints returned different finalized roots. ` +
+        `This may be a transient slot-boundary race (retry), or one of the endpoints is dishonest. ` +
+        `Roots: ${breakdown}`,
+    );
+  }
+  return first.root;
+}
+
 async function boot(config: HeliosBootstrapMsg["config"]): Promise<void> {
   if (provider && status.state === "synced" && status.executionRpc === config.executionRpc) {
     return;
@@ -111,15 +166,26 @@ async function boot(config: HeliosBootstrapMsg["config"]): Promise<void> {
 
       // Helios's baked-in default checkpoint is old enough that no public
       // consensus RPC still serves it. Fetch a fresh finalized-block root from
-      // the consensus RPC and pass it through as the bootstrap anchor.
+      // the consensus RPC (and any configured verifier RPCs — see
+      // fetchAgreedCheckpoint) and pass it through as the bootstrap anchor.
       let checkpoint = config.checkpoint;
+      const verifiers = (config.consensusVerifiers ?? []).filter(
+        (v) => v && v !== consensus,
+      );
       if (!checkpoint) {
         try {
-          checkpoint = await fetchFreshCheckpoint(consensus);
-          console.log("[dapp3] fresh checkpoint:", checkpoint);
+          checkpoint = await fetchAgreedCheckpoint(consensus, verifiers);
+          if (verifiers.length > 0) {
+            console.log(
+              `[dapp3] fresh checkpoint (agreed across ${verifiers.length + 1} sources):`,
+              checkpoint,
+            );
+          } else {
+            console.log("[dapp3] fresh checkpoint:", checkpoint);
+          }
         } catch (e) {
           throw new Error(
-            `Failed to fetch a fresh checkpoint from ${consensus}: ${
+            `Failed to fetch a fresh checkpoint: ${
               e instanceof Error ? e.message : String(e)
             }`,
           );

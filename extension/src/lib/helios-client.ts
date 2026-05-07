@@ -70,13 +70,33 @@ async function ensureHostPermission(url: string): Promise<void> {
 }
 
 export async function ensureHeliosBooted(): Promise<HeliosStatus> {
-  const { rpcUrl, consensusRpc } = await getSettings();
+  const { rpcUrl, consensusRpc, consensusVerifiers, checkpoint } =
+    await getSettings();
   if (!rpcUrl) throw new Error("No Ethereum RPC configured.");
   const executionRpc = rpcUrl;
   const consensus = consensusRpc || DEFAULT_CONSENSUS_RPC;
 
   await ensureHostPermission(executionRpc);
   await ensureHostPermission(consensus);
+
+  // Verifiers must already have host permission — they were granted at
+  // add-time in the options UI. Filter out anything we don't actually have
+  // permission for so a stale settings entry can't wedge bootstrap; the user
+  // sees a no-op rather than a permission failure mid-boot.
+  const verifiers: string[] = [];
+  for (const v of consensusVerifiers ?? []) {
+    if (!v || v === consensus) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(v);
+    } catch {
+      continue;
+    }
+    const has = await chrome.permissions.contains({
+      origins: [`${parsed.origin}/*`],
+    });
+    if (has) verifiers.push(v);
+  }
 
   const resp = await sendOffscreen<{
     ok: boolean;
@@ -85,7 +105,12 @@ export async function ensureHeliosBooted(): Promise<HeliosStatus> {
   }>({
     target: "offscreen",
     type: "helios-bootstrap",
-    config: { executionRpc, consensusRpc: consensus },
+    config: {
+      executionRpc,
+      consensusRpc: consensus,
+      consensusVerifiers: verifiers,
+      checkpoint,
+    },
   });
   if (!resp.ok) throw new Error(resp.error ?? "Helios bootstrap failed");
   return resp.status;

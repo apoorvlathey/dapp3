@@ -67,7 +67,7 @@ export default defineManifest({
   optional_host_permissions: ["https://*/*", "http://*/*"],
   content_security_policy: {
     extension_pages:
-      "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+      "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'none'",
   },
   web_accessible_resources: [
     {

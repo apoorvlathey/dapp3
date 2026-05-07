@@ -7,7 +7,10 @@ import {
 } from "@/lib/web3url-cache";
 
 const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
-const ALTERNATIVE_CONSENSUS_RPCS = [
+// Suggestions populated into the shared `<datalist id="beacon-endpoints">`.
+// Both the primary consensus RPC input and the verifier-add input use this
+// list so users can pick a known beacon or paste their own.
+const BEACON_ENDPOINTS = [
   "https://eth-beacon-chain.drpc.org",
   "https://ethereum-beacon-api.publicnode.com",
   "https://lodestar-mainnet.chainsafe.io",
@@ -27,9 +30,9 @@ const consensusForm = document.getElementById(
 const consensusInput = document.getElementById(
   "consensus-input",
 ) as HTMLInputElement;
-const consensusChipsEl = document.getElementById(
-  "consensus-chips",
-) as HTMLElement;
+const beaconDatalist = document.getElementById(
+  "beacon-endpoints",
+) as HTMLDataListElement;
 const consensusStatus = document.getElementById(
   "consensus-status",
 ) as HTMLElement;
@@ -42,6 +45,35 @@ const interceptToggle = document.getElementById(
 const interceptW3EthToggle = document.getElementById(
   "intercept-w3eth",
 ) as HTMLInputElement;
+
+const verifierForm = document.getElementById(
+  "verifier-form",
+) as HTMLFormElement;
+const verifierInput = document.getElementById(
+  "verifier-input",
+) as HTMLInputElement;
+const verifierAddBtn = document.getElementById(
+  "verifier-add",
+) as HTMLButtonElement;
+const verifierStatus = document.getElementById(
+  "verifier-status",
+) as HTMLElement;
+const verifierListEl = document.getElementById(
+  "verifier-list",
+) as HTMLUListElement;
+
+const checkpointForm = document.getElementById(
+  "checkpoint-form",
+) as HTMLFormElement;
+const checkpointInput = document.getElementById(
+  "checkpoint-input",
+) as HTMLInputElement;
+const checkpointApplyBtn = document.getElementById(
+  "checkpoint-apply",
+) as HTMLButtonElement;
+const checkpointStatus = document.getElementById(
+  "checkpoint-status",
+) as HTMLElement;
 
 const PENCIL_SVG = `
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"
@@ -106,6 +138,11 @@ rpcForm.addEventListener("submit", async (e) => {
     rpcStatus.className = "hint bad";
     return;
   }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    rpcStatus.textContent = "Only http:// or https:// URLs are accepted.";
+    rpcStatus.className = "hint bad";
+    return;
+  }
 
   rpcApplyBtn.disabled = true;
   rpcStatus.className = "hint";
@@ -158,36 +195,22 @@ function currentConsensusUrl(): string {
   return consensusInput.value.trim() || DEFAULT_CONSENSUS_RPC;
 }
 
-function renderConsensusChips(active: string) {
-  consensusChipsEl.innerHTML = "";
-  for (const url of ALTERNATIVE_CONSENSUS_RPCS) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "chip" + (url === active ? " active" : "");
-    chip.textContent = new URL(url).host;
-    chip.title = url;
-    chip.addEventListener("click", () => {
-      consensusInput.value = url;
-      renderConsensusChips(url);
-      consensusInput.focus();
-    });
-    consensusChipsEl.appendChild(chip);
+function populateBeaconDatalist() {
+  beaconDatalist.innerHTML = "";
+  for (const url of BEACON_ENDPOINTS) {
+    const opt = document.createElement("option");
+    opt.value = url;
+    beaconDatalist.appendChild(opt);
   }
 }
 
 function syncConsensusUI(stored: string | undefined) {
   // Empty stored value means "use the default". Show the default URL in the
   // input so the user can see/edit what's actually in use without having to
-  // guess — but don't persist it until they actually hit Apply.
-  const effective = stored || DEFAULT_CONSENSUS_RPC;
-  consensusInput.value = effective;
-  renderConsensusChips(effective);
+  // guess, but don't persist it until they actually hit Apply.
+  consensusInput.value = stored || DEFAULT_CONSENSUS_RPC;
   consensusStatus.textContent = "";
 }
-
-consensusInput.addEventListener("input", () => {
-  renderConsensusChips(currentConsensusUrl());
-});
 
 consensusForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -198,6 +221,11 @@ consensusForm.addEventListener("submit", async (e) => {
     parsed = new URL(next);
   } catch {
     consensusStatus.textContent = "That URL isn't valid.";
+    consensusStatus.className = "hint bad";
+    return;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    consensusStatus.textContent = "Only http:// or https:// URLs are accepted.";
     consensusStatus.className = "hint bad";
     return;
   }
@@ -240,6 +268,173 @@ consensusForm.addEventListener("submit", async (e) => {
   }
   consensusStatus.textContent = "Applied. Watching sync status above.";
   consensusApplyBtn.disabled = false;
+});
+
+async function rebootHeliosForBootstrapChange() {
+  // Both consensus-RPC and verifier-list edits require the same dance: tear
+  // down the running provider and let the next boot pick up the new config.
+  // The SW only auto-reboots on rpcUrl changes, so consensus-side edits need
+  // explicit shutdown + boot round-trips to take effect.
+  try {
+    await chrome.runtime.sendMessage({ type: "shutdown-helios" });
+  } catch {
+    /* best-effort */
+  }
+  renderHelios({ state: "booting" });
+  try {
+    await chrome.runtime.sendMessage({ type: "boot-helios" });
+  } catch {
+    /* status poll will surface any error */
+  }
+}
+
+const TRASH_SVG_VERIFIER = `
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M2.5 4h11"/>
+    <path d="M5.5 4V2.5h5V4"/>
+    <path d="M4 4l1 9.5h6L12 4"/>
+    <path d="M6.5 7v4"/>
+    <path d="M9.5 7v4"/>
+  </svg>`;
+
+function renderVerifierList(verifiers: string[]) {
+  verifierListEl.innerHTML = "";
+  for (const url of verifiers) {
+    const li = document.createElement("li");
+    li.className = "verifier-row";
+
+    const span = document.createElement("span");
+    span.className = "verifier-url";
+    span.textContent = url;
+    span.title = url;
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "icon danger";
+    removeBtn.title = "Remove verifier";
+    removeBtn.setAttribute("aria-label", "Remove verifier");
+    removeBtn.innerHTML = TRASH_SVG_VERIFIER;
+    removeBtn.addEventListener("click", async () => {
+      removeBtn.disabled = true;
+      const cur = (await getSettings()).consensusVerifiers ?? [];
+      const next = cur.filter((v) => v !== url);
+      await setSettings({ consensusVerifiers: next });
+      renderVerifierList(next);
+      verifierStatus.className = "hint";
+      verifierStatus.textContent = "Removed. Rebooting Helios…";
+      await rebootHeliosForBootstrapChange();
+      verifierStatus.textContent = "Removed. Watching sync status above.";
+    });
+
+    li.append(span, removeBtn);
+    verifierListEl.append(li);
+  }
+}
+
+verifierForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const next = verifierInput.value.trim();
+  if (!next) return;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(next);
+  } catch {
+    verifierStatus.textContent = "That URL isn't valid.";
+    verifierStatus.className = "hint bad";
+    return;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    verifierStatus.textContent = "Only http:// or https:// URLs are accepted.";
+    verifierStatus.className = "hint bad";
+    return;
+  }
+
+  const settings = await getSettings();
+  const current = settings.consensusVerifiers ?? [];
+  // Reject duplicates (against existing verifiers and against the primary —
+  // a verifier that's the same URL as the primary is just self-agreement).
+  const primaryNormalized = (settings.consensusRpc || DEFAULT_CONSENSUS_RPC)
+    .replace(/\/$/, "")
+    .toLowerCase();
+  const candidate = next.replace(/\/$/, "").toLowerCase();
+  if (candidate === primaryNormalized) {
+    verifierStatus.textContent =
+      "Verifier must differ from the primary consensus RPC.";
+    verifierStatus.className = "hint bad";
+    return;
+  }
+  if (current.some((v) => v.replace(/\/$/, "").toLowerCase() === candidate)) {
+    verifierStatus.textContent = "That verifier is already in the list.";
+    verifierStatus.className = "hint bad";
+    return;
+  }
+
+  verifierAddBtn.disabled = true;
+  verifierStatus.className = "hint";
+  verifierStatus.textContent = "Requesting permission…";
+
+  const origin = parsed.origin + "/*";
+  const has = await chrome.permissions.contains({ origins: [origin] });
+  if (!has) {
+    const granted = await chrome.permissions.request({ origins: [origin] });
+    if (!granted) {
+      verifierStatus.textContent =
+        "Permission denied — Helios can't reach that host.";
+      verifierStatus.className = "hint bad";
+      verifierAddBtn.disabled = false;
+      return;
+    }
+  }
+
+  const updated = [...current, next];
+  await setSettings({ consensusVerifiers: updated });
+  renderVerifierList(updated);
+  verifierInput.value = "";
+  verifierStatus.textContent = "Added. Rebooting Helios with the new verifier…";
+  await rebootHeliosForBootstrapChange();
+  verifierStatus.textContent = "Added. Watching sync status above.";
+  verifierAddBtn.disabled = false;
+});
+
+function syncCheckpointUI(stored: string | undefined) {
+  checkpointInput.value = stored ?? "";
+  checkpointStatus.textContent = "";
+  checkpointStatus.className = "hint";
+}
+
+function normalizeCheckpoint(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const withPrefix = trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(withPrefix)) return null;
+  return withPrefix.toLowerCase();
+}
+
+checkpointForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const normalized = normalizeCheckpoint(checkpointInput.value);
+  if (normalized === null) {
+    checkpointStatus.textContent =
+      "Expected a 32-byte hex root (0x followed by 64 hex chars).";
+    checkpointStatus.className = "hint bad";
+    return;
+  }
+  checkpointApplyBtn.disabled = true;
+  checkpointStatus.className = "hint";
+  checkpointStatus.textContent = normalized
+    ? "Saving and rebooting Helios with the new checkpoint…"
+    : "Clearing pin and rebooting Helios with a fresh checkpoint…";
+  // Empty string means "no pin" — store undefined so getSettings() falls
+  // back to the live-fetch path on next boot.
+  await setSettings({ checkpoint: normalized || undefined });
+  syncCheckpointUI(normalized || undefined);
+  await rebootHeliosForBootstrapChange();
+  checkpointStatus.textContent = normalized
+    ? "Pinned. Watching sync status above."
+    : "Cleared. Watching sync status above.";
+  checkpointApplyBtn.disabled = false;
 });
 
 function setHeliosDot(kind: "ok" | "bad" | "syncing" | "idle") {
@@ -300,6 +495,12 @@ onSettingsChanged((s) => {
   }
   if (document.activeElement !== consensusInput) {
     syncConsensusUI(s.consensusRpc);
+  }
+  if (document.activeElement !== verifierInput) {
+    renderVerifierList(s.consensusVerifiers ?? []);
+  }
+  if (document.activeElement !== checkpointInput) {
+    syncCheckpointUI(s.checkpoint);
   }
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
@@ -468,8 +669,11 @@ function renderWeb3List(entries: Web3CacheEntry[]) {
     location.replace(chrome.runtime.getURL("onboarding.html"));
     return;
   }
+  populateBeaconDatalist();
   syncRpcUI(s.rpcUrl);
   syncConsensusUI(s.consensusRpc);
+  renderVerifierList(s.consensusVerifiers ?? []);
+  syncCheckpointUI(s.checkpoint);
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
   syncWeb3Budgets(s);
