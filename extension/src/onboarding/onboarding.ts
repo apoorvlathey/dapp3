@@ -458,6 +458,10 @@ syncBack.addEventListener("click", async () => {
   const gatewayOk = await probeIpfs();
   if (gatewayOk) await probeKuboApiAndRender();
   const s = await getSettings();
+  // Prefill the execution RPC. Default to eth.drpc.org for new users; if the
+  // user already has a saved RPC (e.g. revisiting onboarding), keep it.
+  rpcInput.value = s.rpcUrl ?? "https://eth.drpc.org";
+  renderPermPreview();
   // Prefill the advanced fields in case the user already has custom values.
   advConsensusInput.value = s.consensusRpc ?? "";
   advCheckpointInput.value = s.checkpoint ?? "";
