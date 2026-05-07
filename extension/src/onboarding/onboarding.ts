@@ -1,10 +1,12 @@
 import { getSettings, setSettings } from "@/lib/settings";
 import type { HeliosStatus } from "@/lib/helios-bridge";
+import { probeKuboApi } from "@/lib/kubo";
+import { colorizeJson } from "@/lib/colorize-json";
 
-const DEFAULT_CONSENSUS_RPC = "https://ethereum-beacon-api.publicnode.com";
+const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
 const ALTERNATIVE_CONSENSUS_RPCS = [
-  "https://ethereum-beacon-api.publicnode.com",
   "https://eth-beacon-chain.drpc.org",
+  "https://ethereum-beacon-api.publicnode.com",
   "https://lodestar-mainnet.chainsafe.io",
 ];
 
@@ -87,7 +89,135 @@ async function probeIpfs(): Promise<boolean> {
   }
 }
 
-ipfsRecheck.addEventListener("click", () => void probeIpfs());
+// Probe Kubo's RPC API and surface a non-blocking warning if the extension
+// origin is not allowlisted. ERC-4804 dapps need this; standard IPFS dapps
+// don't, so we don't gate "Continue" on it. PRD_ERC4804.md §6.2.
+async function probeKuboApiAndRender() {
+  const panel = panels[1];
+  panel.querySelector("#api-warning")?.remove();
+
+  const result = await probeKuboApi();
+  if (result.ok) return;
+  if (result.kind.kind !== "cors") return; // unreachable already covered by gateway probe
+
+  const extId = chrome.runtime.id;
+  const cmd = `ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["chrome-extension://${extId}"]' && ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST"]'`;
+  const jsonSnippet = [
+    `{`,
+    `  ...`,
+    `  "API": {`,
+    `    "HTTPHeaders": {`,
+    `      ...`,
+    `      "Access-Control-Allow-Methods": ["POST"],`,
+    `      "Access-Control-Allow-Origin": [`,
+    `        ...,`,
+    `        "chrome-extension://${extId}"`,
+    `      ]`,
+    `    }`,
+    `  },`,
+    `  ...`,
+    `}`,
+  ].join("\n");
+
+  const wrap = document.createElement("details");
+  wrap.id = "api-warning";
+  wrap.className = "api-warning";
+  wrap.innerHTML = `
+    <summary class="api-warning-title">Optional: enable <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a> dapps</summary>
+    <div class="api-warning-content">
+      <p class="api-warning-body">
+        Run once, restart Kubo. Standard <code>.eth</code>/IPFS sites already work without this.
+      </p>
+      <div class="cmd-block">
+        <pre data-cmd="cmd"></pre>
+        <button class="copy-btn" type="button" data-target="cmd">Copy</button>
+      </div>
+      <div class="api-walkthrough">
+        <p class="api-walkthrough-label">No CLI? Use IPFS Desktop's UI</p>
+        <ol>
+          <li>Open IPFS Desktop → Settings → Kubo Config.</li>
+          <li>
+            Merge these two keys into <code>API.HTTPHeaders</code> (keep any
+            entries already there):
+            <div class="cmd-block json-block">
+              <pre data-cmd="json"></pre>
+              <button class="copy-btn" type="button" data-target="json">Copy</button>
+            </div>
+          </li>
+          <li>Save and restart Kubo.</li>
+        </ol>
+      </div>
+      <div class="api-warning-footer">
+        <button class="recheck-btn" type="button" data-action="recheck-api">
+          <svg class="btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13.5 3.5v3h-3" />
+            <path d="M2.5 12.5v-3h3" />
+            <path d="M3.5 6.5a5 5 0 0 1 9 -1.5l1 1.5M12.5 9.5a5 5 0 0 1 -9 1.5l-1 -1.5" />
+          </svg>
+          <span>Recheck</span>
+        </button>
+      </div>
+    </div>
+  `;
+  wrap.querySelector('[data-cmd="cmd"]')!.textContent = cmd;
+  wrap.querySelector('[data-cmd="json"]')!.innerHTML = colorizeJson(jsonSnippet);
+
+  wrap.querySelectorAll<HTMLButtonElement>(".copy-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const target = btn.dataset.target;
+      if (!target) return;
+      const text =
+        wrap.querySelector(`[data-cmd="${target}"]`)?.textContent ?? "";
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        return;
+      }
+      const original = btn.textContent ?? "Copy";
+      btn.textContent = "Copied";
+      setTimeout(() => {
+        btn.textContent = original;
+      }, 1500);
+    });
+  });
+
+  wrap
+    .querySelector<HTMLButtonElement>('[data-action="recheck-api"]')
+    ?.addEventListener("click", async () => {
+      const recheck = wrap.querySelector<HTMLButtonElement>(
+        '[data-action="recheck-api"]',
+      );
+      if (recheck) recheck.disabled = true;
+      const r = await probeKuboApi();
+      if (r.ok) {
+        wrap.classList.add("ok");
+        wrap.open = true;
+        const title = wrap.querySelector(".api-warning-title");
+        if (title) title.textContent = "Kubo API is now allowing this extension";
+        const body = wrap.querySelector(".api-warning-body");
+        if (body)
+          body.innerHTML =
+            'Setup complete. <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a> dapps will work after this onboarding finishes.';
+        wrap
+          .querySelectorAll(
+            ".cmd-block, .recheck-btn, .api-walkthrough, .api-warning-footer",
+          )
+          .forEach((el) => el.remove());
+        return;
+      }
+      if (recheck) recheck.disabled = false;
+    });
+
+  const footer = panel.querySelector(".panel-footer");
+  if (footer) panel.insertBefore(wrap, footer);
+  else panel.appendChild(wrap);
+}
+
+ipfsRecheck.addEventListener("click", async () => {
+  const ok = await probeIpfs();
+  if (ok) await probeKuboApiAndRender();
+});
 ipfsNext.addEventListener("click", () => showStep(2));
 
 // --- Step 2: RPC ---
@@ -246,11 +376,11 @@ function renderHelios(status: HeliosStatus | null) {
       heliosText.textContent = "Syncing with Ethereum consensus…";
       break;
     case "synced":
-      heliosText.textContent = "Synced · verifying on-chain reads locally";
+      heliosText.textContent = "Synced · verifying onchain reads locally";
       heliosDot.classList.add("ok");
       syncTitle.textContent = "You're all set";
       syncLede.textContent =
-        "Helios is synced. Finish to open your settings dashboard.";
+        "Helios is synced. Finish to open the dapp3 home page.";
       syncRecovery.hidden = true;
       finishBtn.disabled = false;
       if (!persistedComplete) {
@@ -258,6 +388,7 @@ function renderHelios(status: HeliosStatus | null) {
         void setSettings({
           onboardingComplete: true,
           interceptEthLimo: lastIpfsOk,
+          interceptW3Eth: lastIpfsOk,
         });
       }
       break;
@@ -297,15 +428,17 @@ async function startHelios() {
 finishBtn.addEventListener("click", async () => {
   // State was already persisted the moment Helios reached "synced" (see
   // renderHelios). Belt-and-suspenders: re-save in case the user somehow
-  // clicked Finish before the sync branch ran, then redirect to options.
+  // clicked Finish before the sync branch ran, then redirect to the home
+  // launcher so the user lands somewhere they can immediately type a name.
   if (!persistedComplete) {
     persistedComplete = true;
     await setSettings({
       onboardingComplete: true,
       interceptEthLimo: lastIpfsOk,
+      interceptW3Eth: lastIpfsOk,
     });
   }
-  const url = chrome.runtime.getURL("options.html");
+  const url = chrome.runtime.getURL("home.html");
   location.replace(url);
 });
 
@@ -322,7 +455,8 @@ syncBack.addEventListener("click", async () => {
 
 // --- Init ---
 (async () => {
-  await probeIpfs();
+  const gatewayOk = await probeIpfs();
+  if (gatewayOk) await probeKuboApiAndRender();
   const s = await getSettings();
   // Prefill the advanced fields in case the user already has custom values.
   advConsensusInput.value = s.consensusRpc ?? "";

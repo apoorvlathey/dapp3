@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>dapp3.eth</title>
+    <link rel="stylesheet" href="./src/home/home.css" />
+  </head>
+  <body>
+    <main>
+      <div class="hero">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981" />
+            <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669" />
+          </svg>
+        </span>
+        <h1>dapp3.eth</h1>
+      </div>
+
+      <form id="go" class="go-form" autocomplete="off">
+        <div class="input-row">
+          <input
+            id="target"
+            type="text"
+            placeholder="name.eth or 0x… address"
+            autofocus
+            spellcheck="false"
+            autocapitalize="off"
+            autocorrect="off"
+          />
+          <button type="submit" id="open" class="primary">Open</button>
+        </div>
+        <p class="hint" id="hint" hidden></p>
+      </form>
+
+      <div class="examples">
+        <button type="button" class="chip" data-target="vitalik.eth">vitalik.eth</button>
+        <button type="button" class="chip" data-target="zrouter.eth">zrouter.eth</button>
+        <button
+          type="button"
+          class="chip"
+          data-target="0x000000f7f90708c034c854efd1d5bfe8e9079e32"
+        >zRouter (0x…9e32)</button>
+      </div>
+    </main>
+    <footer class="built-by">
+      Built by
+      <a href="https://apoorv.eth.link" target="_blank" rel="noopener">apoorv.eth</a>
+    </footer>
+    <script type="module" src="./src/home/home.ts"></script>
+  </body>
+</html>

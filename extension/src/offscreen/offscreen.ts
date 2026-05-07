@@ -19,7 +19,7 @@ import type {
 // Tried lodestar-mainnet.chainsafe.io (rate-limits /blocks/ with 429s) and
 // www.lightclientdata.org (returns 503 on the REST API entirely) — both
 // break the advance() loop or bootstrap.
-const DEFAULT_CONSENSUS_RPC = "https://ethereum-beacon-api.publicnode.com";
+const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
 
 let provider: HeliosProvider | null = null;
 let bootPromise: Promise<void> | null = null;

@@ -99,6 +99,7 @@ pnpm typecheck      # tsc --noEmit only
 - Ethereum mainnet only.
 - `.eth` names only (no CCIP-read in v1).
 - No public IPFS fallback by default: the whole point is local-first.
+- ENS names without an IPFS contenthash fall back to **ERC-4804** (`resolveMode = "5219"` / `"manual"`): the onchain HTML is fetched via Helios-verified `eth_call`, pinned to local Kubo, and served at `<cid>.ipfs.localhost:8080`. One-time Kubo CORS setup required; the extension prompts inline. See [`PRD_ERC4804.md`](./PRD_ERC4804.md).
 
 See [`PRD.md § Non-Goals`](./PRD.md#3-non-goals-v1) for the full list.
 
@@ -108,6 +109,7 @@ See [`PRD.md § Non-Goals`](./PRD.md#3-non-goals-v1) for the full list.
 extension/        Chrome MV3 extension (the actual product)
 website/          Landing page (dapp3.eth)
 PRD.md            Scope, architecture, progress log
+PRD_ERC4804.md    ERC-4804 fallback PRD
 IMPLEMENTATION.md Runtime model, Helios gotchas, landmines
 PRIVACY_POLICY.md
 PUBLISHING.md     Chrome Web Store release flow

@@ -62,6 +62,88 @@
           Open on eth.limo gateway →
         </a>
       </div>
+
+      <div class="setup-card" id="setupCard" hidden>
+        <div class="setup-head">
+          <span class="setup-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="11" width="16" height="9" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+          </span>
+          <div>
+            <p class="setup-title">Allow dapp3 to pin to your IPFS node</p>
+            <p class="setup-lede">One-time setup for <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a> dapps.</p>
+          </div>
+        </div>
+
+        <ol class="setup-steps">
+          <li>
+            <span class="setup-step-num">1</span>
+            <div class="setup-step-body">
+              <p class="setup-step-title">Run this in a terminal</p>
+              <div class="setup-cmd">
+                <span class="setup-cmd-prompt" aria-hidden="true">$</span>
+                <pre id="setupCmd"></pre>
+                <button class="setup-copy" type="button" data-target="setupCmd" aria-label="Copy command">
+                  <svg class="ic ic-copy" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="5" y="5" width="8" height="8" rx="1.5" />
+                    <path d="M3 11V4a1 1 0 0 1 1-1h7" />
+                  </svg>
+                  <svg class="ic ic-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 8.5 L6.5 12 L13 5" />
+                  </svg>
+                  <span class="setup-copy-label">Copy</span>
+                </button>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="setup-step-num">2</span>
+            <div class="setup-step-body">
+              <p class="setup-step-title">Restart Kubo / IPFS Desktop</p>
+            </div>
+          </li>
+        </ol>
+
+        <details class="setup-walkthrough">
+          <summary>No CLI? Use IPFS Desktop's UI</summary>
+          <ol>
+            <li>Open IPFS Desktop → Settings → Kubo Config.</li>
+            <li>
+              Merge these two keys into <code>API.HTTPHeaders</code> (keep any
+              entries already there):
+              <div class="setup-json">
+                <pre id="setupJson"></pre>
+                <button class="setup-copy" type="button" data-target="setupJson" aria-label="Copy JSON snippet">
+                  <svg class="ic ic-copy" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="5" y="5" width="8" height="8" rx="1.5" />
+                    <path d="M3 11V4a1 1 0 0 1 1-1h7" />
+                  </svg>
+                  <svg class="ic ic-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 8.5 L6.5 12 L13 5" />
+                  </svg>
+                  <span class="setup-copy-label">Copy</span>
+                </button>
+              </div>
+            </li>
+            <li>Save and restart Kubo.</li>
+          </ol>
+        </details>
+
+        <div class="setup-status" id="setupStatus" hidden></div>
+
+        <div class="setup-footer">
+          <button id="setupRecheck" type="button" class="setup-primary">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M13.5 3.5v3h-3" />
+              <path d="M2.5 12.5v-3h3" />
+              <path d="M3.5 6.5a5 5 0 0 1 9 -1.5l1 1.5M12.5 9.5a5 5 0 0 1 -9 1.5l-1 -1.5" />
+            </svg>
+            <span>Recheck</span>
+          </button>
+        </div>
+      </div>
     </main>
     <footer class="built-by">
       Built by

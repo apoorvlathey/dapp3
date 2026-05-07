@@ -93,6 +93,7 @@ function underlyingUrl(): string {
 type Refs = {
   host: HTMLDivElement;
   shadow: ShadowRoot;
+  brandBtn: HTMLButtonElement;
   dot: HTMLSpanElement;
   statusWrap: HTMLSpanElement;
   stateText: HTMLSpanElement;
@@ -158,11 +159,15 @@ function buildBanner(): Refs {
       border-bottom: 1px solid #27272a;
     }
     .brand-mark {
+      all: unset;
+      cursor: pointer;
       display: inline-flex; align-items: center; justify-content: center;
       width: 20px; height: 20px; border-radius: 4px;
       background: #18181b; border: 1px solid #27272a;
       flex: none;
+      transition: background-color 150ms, border-color 150ms;
     }
+    .brand-mark:hover { background: #27272a; border-color: #3f3f46; }
     .brand-mark svg { width: 12px; height: 12px; display: block; }
     .status {
       display: inline-flex; align-items: center; gap: 7px;
@@ -352,12 +357,12 @@ function buildBanner(): Refs {
   bar.className = "bar";
   bar.innerHTML = `
     <span class="left">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <button type="button" class="brand-mark" title="dapp3 home" aria-label="dapp3 home">
+        <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M16 4 L8 17 L16 13 L24 17 Z" fill="#10b981"/>
           <path d="M16 28 L8 19 L16 15 L24 19 Z" fill="#059669"/>
         </svg>
-      </span>
+      </button>
       <span class="status">
         <span class="dot"></span>
         <span class="statelabel"></span>
@@ -438,6 +443,7 @@ function buildBanner(): Refs {
   return {
     host,
     shadow,
+    brandBtn: q<HTMLButtonElement>(".brand-mark"),
     dot: q<HTMLSpanElement>(".dot"),
     statusWrap: q<HTMLSpanElement>(".status"),
     stateText: q<HTMLSpanElement>(".statelabel"),
@@ -778,13 +784,38 @@ function wireMenu(refs: Refs, ctx: TabContext) {
     }
   });
 
+  // Web3 (ERC-4804) dapps don't have an eth.limo equivalent — eth.limo only
+  // serves IPFS contenthashes. Swap the menu item to point at w3eth.io, the
+  // public ERC-4804 gateway, and route the click through the SW so it can
+  // install the per-tab bypass before the navigation fires.
+  const isWeb3 = ctx.kind === "web3" && !!ctx.contractAddress;
+  if (isWeb3) {
+    const label = refs.ethLimoItem.querySelector("span");
+    if (label) label.textContent = "Open on w3eth.io";
+  }
   refs.ethLimoItem.addEventListener("click", () => {
     close();
+    const p = currentPath() || "/";
+    const path = p.startsWith("/") ? p : `/${p}`;
+    if (isWeb3 && ctx.contractAddress) {
+      const url = `https://${ctx.contractAddress}.w3eth.io${path}`;
+      chrome.runtime
+        .sendMessage({ type: "open-on-w3eth", url })
+        .then((resp) => {
+          // SW responded but reported failure (rule install, tabs.update, etc).
+          // Fall back to a direct navigation so the click still does
+          // *something* visible. The bypass is gated by the SW so without it
+          // the JS redirect handler may bounce us back to local — a degraded
+          // UX but better than a dead button.
+          if (!resp?.ok) location.assign(url);
+        })
+        .catch(() => location.assign(url));
+      return;
+    }
     // `ensName` already ends in `.eth`, so `<ensName>.limo` yields the public
     // gateway hostname. Preserve the live in-page path so deep links survive
     // the handoff — the user may have navigated within a SPA since mount.
-    const p = currentPath() || "/";
-    const url = `https://${ctx.ensName}.limo${p.startsWith("/") ? p : `/${p}`}`;
+    const url = `https://${ctx.ensName}.limo${path}`;
     chrome.runtime.sendMessage({ type: "open-on-eth-limo", url }).catch(() => {
       // SW unreachable — fall back to a direct navigation. If eth.limo
       // interception is on, DNR will yank this right back to local; that's
@@ -797,6 +828,14 @@ function wireMenu(refs: Refs, ctx: TabContext) {
     e.stopPropagation();
     close();
     chrome.runtime.sendMessage({ type: "open-bookmarks" }).catch(() => {
+      // best-effort; the SW might not handle it, that's fine
+    });
+  });
+
+  refs.brandBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    close();
+    chrome.runtime.sendMessage({ type: "open-home" }).catch(() => {
       // best-effort; the SW might not handle it, that's fine
     });
   });

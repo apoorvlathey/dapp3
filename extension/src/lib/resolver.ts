@@ -16,9 +16,22 @@ import {
   getHeliosStatus,
 } from "@/lib/helios-client";
 import type { HeliosStatus } from "@/lib/helios-bridge";
+import { fetchErc4804, Web3FetchError } from "@/lib/web3url";
+import { addToKubo, KuboPinError, removeMfsPath, unpinFromKubo } from "@/lib/kubo";
+import {
+  bumpWeb3LastAccess,
+  getWeb3Budgets,
+  getWeb3CacheEntry,
+  mfsPathFor,
+  planEviction,
+  removeWeb3CacheEntry,
+  setWeb3CacheEntry,
+  sha256Hex,
+} from "@/lib/web3url-cache";
 
 const RESOLVER_ABI = parseAbi([
   "function contenthash(bytes32 node) view returns (bytes)",
+  "function addr(bytes32 node) view returns (address)",
 ]);
 
 let heliosClientCache: PublicClient | null = null;
@@ -136,33 +149,233 @@ export async function resolveEns(
     };
   }
 
-  if (!raw || raw === "0x") {
-    return { ok: false, error: `${lower} has no contenthash set.` };
-  }
-
+  // Contenthash branch: ipfs / ipns are the primary path.
+  let contenthashUsable = !!raw && raw !== "0x";
   let codec: string | undefined;
-  let decoded: string;
-  try {
-    codec = getCodec(raw);
-    decoded = decodeContentHash(raw);
-  } catch (e) {
-    return { ok: false, error: `Cannot decode contenthash: ${describe(e)}` };
+  let decoded: string | undefined;
+  if (contenthashUsable) {
+    try {
+      codec = getCodec(raw);
+      decoded = decodeContentHash(raw);
+    } catch {
+      contenthashUsable = false;
+    }
   }
-
-  if (codec !== "ipfs" && codec !== "ipns") {
+  if (
+    contenthashUsable &&
+    decoded != null &&
+    (codec === "ipfs" || codec === "ipns")
+  ) {
     return {
-      ok: false,
-      error: `Unsupported contenthash codec "${codec}". v1 supports ipfs / ipns only.`,
+      ok: true,
+      kind: codec,
+      value: decoded,
+      ensName: lower,
+      trustedDirectly,
     };
   }
 
+  // ERC-4804 fallback: read addr() from the same resolver. If the address is
+  // a contract that implements ERC-5219 manual mode, fetch its HTML and pin
+  // it to local Kubo so we can serve via <cid>.ipfs.localhost. See
+  // PRD_ERC4804.md for scope.
+  let address: `0x${string}`;
+  try {
+    address = (await client.readContract({
+      address: resolverAddress,
+      abi: RESOLVER_ABI,
+      functionName: "addr",
+      args: [namehash(lower)],
+    })) as `0x${string}`;
+  } catch (e) {
+    return {
+      ok: false,
+      error: contenthashUsable
+        ? `Unsupported contenthash codec "${codec}" and addr() failed: ${describe(e)}`
+        : `${lower} has no contenthash and addr() failed: ${describe(e)}`,
+    };
+  }
+
+  if (!address || /^0x0+$/i.test(address)) {
+    return {
+      ok: false,
+      error: contenthashUsable
+        ? `Unsupported contenthash codec "${codec}". v1 supports ipfs / ipns / ERC-4804.`
+        : `${lower} has no contenthash and no addr record set.`,
+    };
+  }
+
+  return await fetchPinAndCacheErc4804(client, address, lower, trustedDirectly);
+}
+
+// Resolve a raw 0x contract address as an ERC-4804 dapp, skipping ENS lookup.
+// Used for `0x<addr>.w3eth.io` interception and the homepage's address-mode
+// input. The "ensName" carried on the response is the lowercased address
+// itself, since there is no associated ENS name for this navigation.
+export async function resolveContractAddress(
+  address: string,
+  opts: ResolveOptions = {},
+): Promise<ResolveResponse> {
+  const lower = address.toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(lower)) {
+    return { ok: false, error: `not a contract address: ${address}` };
+  }
+
+  const { rpcUrl } = await getSettings();
+  if (!rpcUrl) {
+    return {
+      ok: false,
+      error: "No Ethereum RPC configured. Set one in the extension options.",
+    };
+  }
+
+  let client: PublicClient;
+  let trustedDirectly = false;
+
+  if (opts.bypassHelios) {
+    client = getDirectClient(rpcUrl);
+    trustedDirectly = true;
+  } else {
+    try {
+      const status = await ensureHeliosBooted();
+      if (status.state !== "synced") {
+        return {
+          ok: false,
+          error: `Helios is ${status.state}. Wait for sync or choose "bypass Helios".`,
+        };
+      }
+      client = getHeliosClient();
+    } catch (e) {
+      return {
+        ok: false,
+        error: `Helios bootstrap failed: ${describe(e)}`,
+      };
+    }
+  }
+
+  return await fetchPinAndCacheErc4804(
+    client,
+    lower as `0x${string}`,
+    lower,
+    trustedDirectly,
+  );
+}
+
+// Shared ERC-4804 path: fetch the contract body via Helios, sha256-dedupe
+// against the per-contract cache, pin to local Kubo if changed, evict LRU
+// entries to fit budget. Used by both ENS resolution (when contenthash is
+// missing) and direct-address resolution (w3eth.io / homepage 0x input).
+async function fetchPinAndCacheErc4804(
+  client: PublicClient,
+  address: `0x${string}`,
+  ensName: string,
+  trustedDirectly: boolean,
+): Promise<ResolveResponse> {
+  let body: Uint8Array;
+  let contentType: string | null;
+  try {
+    const fetched = await fetchErc4804(client, address);
+    body = fetched.body;
+    contentType = fetched.contentType;
+  } catch (e) {
+    if (e instanceof Web3FetchError) {
+      return { ok: false, error: `web3-${e.detail.kind}: ${e.message}` };
+    }
+    return { ok: false, error: `ERC-4804 probe failed: ${describe(e)}` };
+  }
+
+  if (contentType && !/^\s*text\/html(?:\s*;|\s*$)/i.test(contentType)) {
+    return {
+      ok: false,
+      error: `web3-non-html: contract returned content-type "${contentType}" (v1 serves text/html only).`,
+    };
+  }
+
+  const contractAddress = address.toLowerCase() as `0x${string}`;
+  let contentHash: string;
+  try {
+    contentHash = await sha256Hex(body);
+  } catch (e) {
+    return { ok: false, error: `sha256 failed: ${describe(e)}` };
+  }
+
+  const existing = await getWeb3CacheEntry(contractAddress).catch(() => null);
+  if (existing && existing.contentHash === contentHash) {
+    bumpWeb3LastAccess(contractAddress).catch(() => undefined);
+    return {
+      ok: true,
+      kind: "web3",
+      value: existing.cid,
+      ensName,
+      trustedDirectly,
+      contractAddress,
+    };
+  }
+
+  let cid: string;
+  try {
+    const budgets = await getWeb3Budgets();
+    const plan = await planEviction(body.byteLength, budgets);
+    for (const stale of plan.toEvict) {
+      await evictWeb3(stale).catch((e) =>
+        console.warn(`[dapp3] eviction failed for ${stale.contractAddress}`, e),
+      );
+    }
+    if (existing && existing.cid !== "") {
+      await evictWeb3(existing).catch((e) =>
+        console.warn("[dapp3] swap eviction failed", e),
+      );
+    }
+    const pinned = await addToKubo(body, {
+      mfsPath: mfsPathFor(contractAddress, contentHash),
+    });
+    cid = pinned.cid;
+  } catch (e) {
+    if (e instanceof KuboPinError) {
+      if (e.detail.kind === "cors") {
+        return {
+          ok: false,
+          error: `web3-pin-failed: ${e.message}`,
+          code: "kubo-cors-blocked",
+        };
+      }
+      return { ok: false, error: `web3-pin-failed: ${e.message}` };
+    }
+    return { ok: false, error: `web3-pin-failed: ${describe(e)}` };
+  }
+
+  await setWeb3CacheEntry({
+    contractAddress,
+    contentHash,
+    cid,
+    bodyLen: body.byteLength,
+    lastAccess: Date.now(),
+    ensName,
+  }).catch((e) => console.warn("[dapp3] web3 cache write failed", e));
+
   return {
     ok: true,
-    kind: codec,
-    value: decoded,
-    ensName: lower,
+    kind: "web3",
+    value: cid,
+    ensName,
     trustedDirectly,
+    contractAddress,
   };
+}
+
+async function evictWeb3(entry: {
+  contractAddress: `0x${string}`;
+  contentHash: string;
+  cid: string;
+}) {
+  // Best-effort: failures here just leak storage on the user's Kubo node;
+  // they don't affect serving. The cache row is dropped regardless so the
+  // chrome.storage map stays in sync with our intent.
+  await Promise.allSettled([
+    unpinFromKubo(entry.cid),
+    removeMfsPath(mfsPathFor(entry.contractAddress, entry.contentHash)),
+  ]);
+  await removeWeb3CacheEntry(entry.contractAddress).catch(() => undefined);
 }
 
 function describe(e: unknown): string {

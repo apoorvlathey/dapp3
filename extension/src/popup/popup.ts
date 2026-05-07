@@ -121,6 +121,13 @@ document.getElementById("open-bookmarks")?.addEventListener("click", async () =>
   window.close();
 });
 
+document.getElementById("open-home")?.addEventListener("click", async () => {
+  await chrome.tabs.create({
+    url: chrome.runtime.getURL("home.html"),
+  });
+  window.close();
+});
+
 // Fallback path for the narrow race where the SW hasn't yet applied
 // `chrome.action.setPopup('')` after onboarding was reset (or on a fresh
 // install before the initial getSettings() resolves): bounce to onboarding

@@ -337,6 +337,26 @@ button.primary:active {
   flex: 1;
 }
 
+.input-with-icon {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.input-with-icon input {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.input-with-icon .icon {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .hint.bad {
   color: var(--rose-400);
 }
@@ -393,6 +413,107 @@ button.primary:active {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.55;
+}
+
+/* ---------- Web3:// dapps section ---------- */
+.web3-budgets-row {
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.web3-budget-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+.web3-budget-field input[type="number"] {
+  padding: 11px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: "SF Mono", Menlo, Monaco, ui-monospace, monospace;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+  -moz-appearance: textfield;
+}
+
+.web3-budget-field input[type="number"]::-webkit-outer-spin-button,
+.web3-budget-field input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.web3-budget-field input[type="number"]:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+}
+
+.web3-totals {
+  margin: 18px 0 8px;
+  padding: 10px 14px;
+  background: var(--bg-card-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.web3-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.web3-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-card-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.web3-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.web3-name {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.web3-meta {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-family: "SF Mono", Menlo, Monaco, ui-monospace, monospace;
+}
+
+.web3-cid {
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-family: "SF Mono", Menlo, Monaco, ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.web3-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
 }
 
 .built-by {

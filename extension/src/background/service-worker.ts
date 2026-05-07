@@ -1,12 +1,30 @@
 import "@/lib/sw-dom-shim";
-import { resolveEns, getOrStartHelios } from "@/lib/resolver";
+import {
+  resolveContractAddress,
+  resolveEns,
+  getOrStartHelios,
+} from "@/lib/resolver";
 import { buildSubdomainUrl, parseGatewayHost } from "@/lib/gateway";
 import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
-import type { ContentUpdatedMessage, TabContext } from "@/lib/messaging";
+import type {
+  ContentUpdatedMessage,
+  ResolveKind,
+  TabContext,
+} from "@/lib/messaging";
 import { findCachedByGatewayLabel, getCached, setCached } from "@/lib/cache";
+import {
+  bumpWeb3LastAccess,
+  getWeb3CacheEntry,
+  listWeb3Entries,
+  removeWeb3CacheEntry,
+  mfsPathFor,
+} from "@/lib/web3url-cache";
+import { removeMfsPath, unpinFromKubo } from "@/lib/kubo";
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
+const W3ETH_HOST_RE = /^0x[a-f0-9]{40}\.w3eth\.io\.?$/i;
+const ADDRESS_RE = /^0x[a-f0-9]{40}$/i;
 
 // Dynamic DNR rule IDs. Must not collide with the static rules in
 // public/rules/no_https_upgrade.json (which use 1, 2).
@@ -17,6 +35,18 @@ const ETH_LIMO_REDIRECT_RULE_ID = 1002;
 // public gateway even when interception is on. Session rules are evicted on
 // browser shutdown, so there's no cross-session leak.
 const ETH_LIMO_BYPASS_RULE_ID = 1003;
+// Catches `https?://0x<addr>.w3eth.io[/path]` and rewrites to the interstitial
+// with the original URL stashed in the fragment. Same shape as the .eth rule:
+// the interstitial recovers the URL via location.hash and parses the contract
+// address out of the hostname. Toggle: settings.interceptW3Eth.
+const W3ETH_REDIRECT_RULE_ID = 1004;
+// Session-scoped ALLOW rule that punches through the w3eth.io DNR redirect
+// for specific tabs. Mirrors ETH_LIMO_BYPASS_RULE_ID but for w3eth.io. Used
+// when the user clicks "Open on w3eth.io" in the banner menu — they want the
+// public gateway, not local resolution. The in-memory `w3EthBypassTabs` Set
+// below covers the JS-layer redirect (onBeforeNavigate); the DNR rule covers
+// the network-layer redirect for browsers where that one fires.
+const W3ETH_BYPASS_RULE_ID = 1005;
 
 function errorPageUrl(
   name: string,
@@ -62,6 +92,56 @@ async function installEthRedirectRule() {
         condition: {
           // Any *.eth host (first-level or subdomain), any scheme/port, any path/query/fragment.
           regexFilter: "^https?://(?:[a-z0-9-]+\\.)+eth(?::\\d+)?(?:/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+        },
+      },
+    ],
+  });
+}
+
+async function syncW3EthRedirectRule(enabled: boolean) {
+  // Rewrites `https?://0x<40hex>.w3eth.io[:port][/path]` → the interstitial,
+  // with the original URL preserved in the fragment so the page can recover
+  // the contract address and resolve via local Helios + Kubo. The fragment
+  // form mirrors the .eth rule exactly so interstitial.ts has one parse path.
+  if (!enabled) {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [W3ETH_REDIRECT_RULE_ID],
+    });
+    return;
+  }
+  // Sanity check: the redirect silently no-ops without host access to the
+  // request URL. For unpacked installs that pre-date the manifest update, the
+  // user may need to remove + re-load the extension to pick up the new host.
+  try {
+    const has = await chrome.permissions.contains({
+      origins: ["*://*.w3eth.io/*"],
+    });
+    if (!has) {
+      console.warn(
+        "[dapp3] missing *://*.w3eth.io/* host permission — w3eth.io redirect will no-op." +
+          " Remove and re-load the unpacked extension to grant the new host.",
+      );
+    }
+  } catch {
+    /* permissions.contains may not be available; fall through */
+  }
+  const interstitial = chrome.runtime.getURL("interstitial.html");
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: [W3ETH_REDIRECT_RULE_ID],
+    addRules: [
+      {
+        id: W3ETH_REDIRECT_RULE_ID,
+        priority: 2,
+        action: {
+          type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+          redirect: { regexSubstitution: `${interstitial}#\\0` },
+        },
+        condition: {
+          regexFilter:
+            "^https?://0x[a-f0-9]{40}\\.w3eth\\.io(?::\\d+)?(?:/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -192,6 +272,84 @@ async function removeEthLimoBypassForTab(tabId: number) {
   await setEthLimoBypassTabs(current.filter((id) => id !== tabId));
 }
 
+// Bypass set for the JS-layer w3eth.io redirect (the one in onBeforeNavigate
+// below). In-memory only — survives within an SW lifetime, lost on restart.
+// Combined with the session DNR ALLOW rule below, the SW restart edge case
+// only loses the JS layer; the DNR rule keeps holding through the restart.
+const w3EthBypassTabs = new Set<number>();
+
+async function setW3EthBypassDnrTabs(tabIds: number[]) {
+  if (tabIds.length === 0) {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [W3ETH_BYPASS_RULE_ID],
+    });
+    return;
+  }
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [W3ETH_BYPASS_RULE_ID],
+    addRules: [
+      {
+        id: W3ETH_BYPASS_RULE_ID,
+        priority: 3,
+        action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
+        condition: {
+          regexFilter:
+            "^https?://0x[a-f0-9]{40}\\.w3eth\\.io(?::\\d+)?(?:/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+          tabIds,
+        },
+      },
+    ],
+  });
+}
+
+async function getW3EthBypassDnrTabs(): Promise<number[]> {
+  const rules = await chrome.declarativeNetRequest.getSessionRules();
+  const rule = rules.find((r) => r.id === W3ETH_BYPASS_RULE_ID);
+  return (rule?.condition.tabIds as number[] | undefined) ?? [];
+}
+
+async function addW3EthBypassForTab(tabId: number) {
+  // Sync in-memory add must happen first and unconditionally — it's what
+  // actually gates the JS-layer onBeforeNavigate redirect. The DNR rule
+  // install below is best-effort defense-in-depth for browsers where the
+  // network-layer redirect rule fires; if it throws (rule shape rejected,
+  // session-rule cap hit, etc.) we don't want to abort the navigation.
+  w3EthBypassTabs.add(tabId);
+  try {
+    const current = await getW3EthBypassDnrTabs();
+    if (current.includes(tabId)) return;
+    await setW3EthBypassDnrTabs([...current, tabId]);
+  } catch (e) {
+    console.warn(
+      "[dapp3] w3eth.io DNR bypass install failed; JS bypass still in effect",
+      e,
+    );
+  }
+}
+
+async function removeW3EthBypassForTab(tabId: number) {
+  w3EthBypassTabs.delete(tabId);
+  try {
+    const current = await getW3EthBypassDnrTabs();
+    if (!current.includes(tabId)) return;
+    await setW3EthBypassDnrTabs(current.filter((id) => id !== tabId));
+  } catch {
+    /* best-effort cleanup */
+  }
+}
+
+// Repopulate the in-memory set from session DNR state on SW boot. The session
+// rules survive SW restart even though the in-memory Set doesn't, so this
+// keeps the two layers in sync.
+getW3EthBypassDnrTabs()
+  .then((tabs) => {
+    for (const id of tabs) w3EthBypassTabs.add(id);
+  })
+  .catch(() => undefined);
+
 async function resolveAndRedirect(
   tabId: number,
   ensName: string,
@@ -199,13 +357,24 @@ async function resolveAndRedirect(
   search: string,
   hash: string,
   opts: { bypassHelios?: boolean } = {},
-) {
-  const result = await resolveEns(ensName, opts);
+): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
+  // The "ensName" parameter is a generic resolution target — either a `.eth`
+  // name or a 0x contract address (from w3eth.io interception or homepage).
+  const result = ADDRESS_RE.test(ensName)
+    ? await resolveContractAddress(ensName, opts)
+    : await resolveEns(ensName, opts);
   if (!result.ok) {
+    // Kubo CORS rejection is a one-time setup issue, not a per-site failure.
+    // Don't navigate the tab — return the code so the interstitial can
+    // render the setup card inline and keep the address-bar context. See
+    // PRD_ERC4804.md §4.1 / §6.1.
+    if (result.code === "kubo-cors-blocked") {
+      return { ok: false, error: result.error, code: result.code };
+    }
     await chrome.tabs.update(tabId, {
       url: errorPageUrl(ensName, result.error, path, search, hash),
     });
-    return;
+    return { ok: false, error: result.error };
   }
   const target = buildSubdomainUrl(result.kind, result.value, path || "/", search, hash);
   const ctx: TabContext = {
@@ -214,36 +383,66 @@ async function resolveAndRedirect(
     value: result.value,
     path: path + search + hash,
     trustedDirectly: result.trustedDirectly,
+    contractAddress: result.contractAddress,
   };
   await chrome.storage.session.set({ [`tab:${tabId}`]: ctx });
   // Only cache Helios-verified resolutions. Bypass-trusted results carry a
-  // weaker trust contract and shouldn't be served silently on later visits.
+  // weaker trust contract. Web3 entries are also cached here so the next
+  // visit redirects synchronously from the ENS name to the same CID; the
+  // per-contract sha256 cache (web3url-cache.ts) handles content freshness
+  // separately, and refreshFromCache below performs the revalidation.
   if (!result.trustedDirectly) {
     await setCached({
       ensName: result.ensName,
       kind: result.kind,
       value: result.value,
       resolvedAt: Date.now(),
+      contractAddress: result.contractAddress,
     }).catch((e) => console.warn("[dapp3] cache write failed", e));
   }
   await chrome.tabs.update(tabId, { url: target });
+  return { ok: true };
 }
 
 // Background re-resolve after a cache-hit navigation. If the verified
-// contenthash differs from what we just served, update the cache, the
+// contenthash (or in the web3 path, the CID derived from re-pinning fresh
+// bytes) differs from what we just served, update the cache, the
 // session-storage TabContext (so a future hydrate sees fresh values), and
 // notify the banner so it can offer the user a one-click reload.
+//
+// Per-contract revalidation is rate-limited via web3RevalidateMinIntervalMs:
+// repeated visits inside the window skip the eth_call entirely and just bump
+// lastAccess. This keeps Helios load light when a user clicks around a
+// multi-page web3 dapp that triggers many same-contract resolves.
+const DEFAULT_WEB3_REVALIDATE_MIN_INTERVAL_MS = 30_000;
+
 async function refreshFromCache(
   tabId: number,
   ensName: string,
   path: string,
   search: string,
   hash: string,
-  cachedValue: string,
+  cachedEntry: { kind: ResolveKind; value: string; contractAddress?: `0x${string}` },
 ) {
+  // Web3 rate-limit: skip the eth_call if we just revalidated this contract.
+  if (cachedEntry.kind === "web3" && cachedEntry.contractAddress) {
+    const [s, entry] = await Promise.all([
+      getSettings(),
+      getWeb3CacheEntry(cachedEntry.contractAddress),
+    ]);
+    const interval =
+      s.web3RevalidateMinIntervalMs ?? DEFAULT_WEB3_REVALIDATE_MIN_INTERVAL_MS;
+    if (entry && Date.now() - entry.lastAccess < interval) {
+      bumpWeb3LastAccess(cachedEntry.contractAddress).catch(() => undefined);
+      return;
+    }
+  }
+
   let result;
   try {
-    result = await resolveEns(ensName);
+    result = ADDRESS_RE.test(ensName)
+      ? await resolveContractAddress(ensName)
+      : await resolveEns(ensName);
   } catch (e) {
     console.warn("[dapp3] background refresh failed", e);
     return;
@@ -256,22 +455,22 @@ async function refreshFromCache(
     );
     return;
   }
-  if (result.value === cachedValue) {
-    // Cache is still fresh; nothing to do beyond bumping the timestamp.
-    await setCached({
-      ensName: result.ensName,
-      kind: result.kind,
-      value: result.value,
-      resolvedAt: Date.now(),
-    }).catch(() => undefined);
-    return;
-  }
+
+  // The fresh resolve always rewrites the ENS-keyed cache (it's authoritative
+  // for first paint on the next visit) regardless of whether the value
+  // changed — bumps resolvedAt and picks up any contract-address shifts.
   await setCached({
     ensName: result.ensName,
     kind: result.kind,
     value: result.value,
     resolvedAt: Date.now(),
+    contractAddress: result.contractAddress,
   }).catch(() => undefined);
+
+  if (result.value === cachedEntry.value) {
+    // Same content. Done — just leave the timestamp bump above.
+    return;
+  }
   const newGateway = buildSubdomainUrl(
     result.kind,
     result.value,
@@ -287,6 +486,7 @@ async function refreshFromCache(
     value: result.value,
     path: path + search + hash,
     trustedDirectly: false,
+    contractAddress: result.contractAddress,
   };
   await chrome.storage.session.set({ [`tab:${tabId}`]: fresh });
   const msg: ContentUpdatedMessage = {
@@ -311,15 +511,35 @@ installEthRedirectRule().then(
   (e) => console.warn("[dapp3] failed to install .eth DNR rule", e),
 );
 getSettings().then((s) => {
+  console.log(
+    "[dapp3] booting with intercept toggles:",
+    "ethLimo=",
+    s.interceptEthLimo,
+    "w3eth=",
+    s.interceptW3Eth,
+  );
   syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
     console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+  );
+  syncW3EthRedirectRule(s.interceptW3Eth).then(
+    () =>
+      console.log(
+        "[dapp3] w3eth.io DNR rule",
+        s.interceptW3Eth ? "installed" : "removed",
+      ),
+    (e) => console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
   );
   syncActionPopup(!!s.onboardingComplete);
 });
 
 // DNR handles the *.eth → interstitial redirect synchronously at the network
-// layer, beating Chrome's DNS-failure page. This listener just pre-boots
-// Helios so it has a head start by the time the interstitial polls it.
+// layer, beating Chrome's DNS-failure page. This listener pre-boots Helios so
+// it has a head start by the time the interstitial polls it. It also acts as
+// a JS-layer fallback for w3eth.io interception: the DNR rule for w3eth.io
+// has proven unreliable in practice (silently no-ops in some Chrome setups
+// even with proper host_permissions), so we always issue the tabs.update
+// redirect here too. If DNR happened to fire as well, both target the same
+// interstitial URL — the race is idempotent.
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId !== 0) return;
   let url: URL;
@@ -328,13 +548,29 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   } catch {
     return;
   }
-  if (!ETH_HOST_RE.test(url.hostname)) return;
+  const isEth = ETH_HOST_RE.test(url.hostname);
+  const isW3Eth = W3ETH_HOST_RE.test(url.hostname);
+  if (!isEth && !isW3Eth) return;
   getOrStartHelios().catch(() => undefined);
+  if (
+    isW3Eth &&
+    activeInterceptW3Eth !== false &&
+    !w3EthBypassTabs.has(details.tabId)
+  ) {
+    const interstitial = chrome.runtime.getURL("interstitial.html");
+    const target = `${interstitial}#${details.url}`;
+    chrome.tabs
+      .update(details.tabId, { url: target })
+      .catch((e) =>
+        console.warn("[dapp3] w3eth.io fallback redirect failed", e),
+      );
+  }
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   await chrome.storage.session.remove(`tab:${tabId}`);
   await removeEthLimoBypassForTab(tabId).catch(() => undefined);
+  await removeW3EthBypassForTab(tabId).catch(() => undefined);
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -404,7 +640,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return false;
     }
     (async () => {
-      const hit = await getCached(name).catch(() => null);
+      // Address-mode (w3eth.io / homepage 0x input): look up the per-contract
+      // cache rather than the ENS-keyed one. The synthetic cache entry below
+      // gives the rest of the flow (TabContext, refreshFromCache) the same
+      // shape it expects in ENS mode.
+      let hit: {
+        ensName: string;
+        kind: ResolveKind;
+        value: string;
+        contractAddress?: `0x${string}`;
+      } | null = null;
+      if (ADDRESS_RE.test(name)) {
+        const entry = await getWeb3CacheEntry(name as `0x${string}`).catch(
+          () => null,
+        );
+        if (entry) {
+          hit = {
+            ensName: name,
+            kind: "web3",
+            value: entry.cid,
+            contractAddress: entry.contractAddress,
+          };
+        }
+      } else {
+        const c = await getCached(name).catch(() => null);
+        if (c) {
+          hit = {
+            ensName: c.ensName,
+            kind: c.kind,
+            value: c.value,
+            contractAddress: c.contractAddress,
+          };
+        }
+      }
       if (!hit) {
         sendResponse({ cached: false });
         return;
@@ -422,6 +690,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         value: hit.value,
         path: path + search + hash,
         trustedDirectly: false,
+        contractAddress: hit.contractAddress,
         fromCache: true,
       };
       await chrome.storage.session.set({ [`tab:${tabId}`]: ctx });
@@ -429,9 +698,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Kick off the background re-resolve. Helios was pre-warmed in
       // onBeforeNavigate; if it isn't synced yet the resolve will fail and
       // we'll silently skip the freshness check until next visit.
-      refreshFromCache(tabId, name, path, search, hash, hit.value).catch(
-        (e) => console.warn("[dapp3] refreshFromCache threw", e),
-      );
+      refreshFromCache(tabId, name, path, search, hash, {
+        kind: hit.kind,
+        value: hit.value,
+        contractAddress: hit.contractAddress,
+      }).catch((e) => console.warn("[dapp3] refreshFromCache threw", e));
     })();
     return true;
   }
@@ -450,7 +721,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       String(msg.hash ?? ""),
       { bypassHelios: !!msg.bypassHelios },
     ).then(
-      () => sendResponse({ ok: true }),
+      (result) => sendResponse(result),
       (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
     );
     return true;
@@ -501,12 +772,78 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === "open-on-w3eth" && typeof msg.url === "string") {
+    const tabId = sender.tab?.id;
+    const url = msg.url as string;
+    if (tabId == null) {
+      sendResponse({ ok: false, error: "no tabId" });
+      return false;
+    }
+    // Sync bypass set first so onBeforeNavigate skips the JS redirect when the
+    // tabs.update below fires its event. DNR rule install is fire-and-forget
+    // (defense-in-depth) and must not block the navigation.
+    w3EthBypassTabs.add(tabId);
+    addW3EthBypassForTab(tabId).catch(() => undefined);
+    chrome.tabs.update(tabId, { url }).then(
+      () => sendResponse({ ok: true }),
+      (e) =>
+        sendResponse({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+    );
+    return true;
+  }
+
   if (msg?.type === "open-bookmarks") {
     (async () => {
       await chrome.tabs.create({
         url: chrome.runtime.getURL("bookmarks.html"),
       });
       sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "open-home") {
+    (async () => {
+      await chrome.tabs.create({
+        url: chrome.runtime.getURL("home.html"),
+      });
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "web3-list") {
+    listWeb3Entries().then(
+      (entries) => sendResponse({ ok: true, entries }),
+      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
+    );
+    return true;
+  }
+
+  if (msg?.type === "web3-evict" && typeof msg.contractAddress === "string") {
+    const addr = msg.contractAddress as `0x${string}`;
+    (async () => {
+      const entry = await getWeb3CacheEntry(addr);
+      if (!entry) {
+        sendResponse({ ok: true, evicted: false });
+        return;
+      }
+      try {
+        await Promise.allSettled([
+          unpinFromKubo(entry.cid),
+          removeMfsPath(mfsPathFor(entry.contractAddress, entry.contentHash)),
+        ]);
+        await removeWeb3CacheEntry(entry.contractAddress);
+        sendResponse({ ok: true, evicted: true });
+      } catch (e) {
+        sendResponse({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
     })();
     return true;
   }
@@ -538,6 +875,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
     );
+    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    );
     syncActionPopup(!!s.onboardingComplete);
   });
   getOrStartHelios().catch(() => {
@@ -558,10 +898,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // user's preference.
 let activeRpc: string | undefined;
 let activeInterceptEthLimo: boolean | undefined;
+let activeInterceptW3Eth: boolean | undefined;
 let activeOnboardingComplete: boolean | undefined;
 getSettings().then((s) => {
   activeRpc = s.rpcUrl;
   activeInterceptEthLimo = s.interceptEthLimo;
+  activeInterceptW3Eth = s.interceptW3Eth;
   activeOnboardingComplete = !!s.onboardingComplete;
 });
 onSettingsChanged((s) => {
@@ -578,6 +920,12 @@ onSettingsChanged((s) => {
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
     );
   }
+  if (s.interceptW3Eth !== activeInterceptW3Eth) {
+    activeInterceptW3Eth = s.interceptW3Eth;
+    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    );
+  }
   const onboarded = !!s.onboardingComplete;
   if (onboarded !== activeOnboardingComplete) {
     activeOnboardingComplete = onboarded;
@@ -592,6 +940,9 @@ chrome.runtime.onStartup.addListener(() => {
   getSettings().then((s) => {
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+    );
+    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
     );
     syncActionPopup(!!s.onboardingComplete);
   });

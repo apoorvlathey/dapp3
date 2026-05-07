@@ -27,6 +27,7 @@ export default defineConfig({
         offscreen: "offscreen.html",
         onboarding: "onboarding.html",
         bookmarks: "bookmarks.html",
+        home: "home.html",
       },
       output: {
         chunkFileNames: "assets/chunk-[hash].js",

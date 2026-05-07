@@ -8,43 +8,76 @@ import {
 } from "@/lib/bookmarks";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { colorize } from "@/lib/url-field";
+import { probeKuboApi } from "@/lib/kubo";
+import { colorizeJson } from "@/lib/colorize-json";
 
 // DNR redirects `http://foo.eth/path?q#h` → `<ext>/interstitial.html#<full-url>`.
 // The original URL is stashed in the fragment verbatim — fragments can contain
 // arbitrary characters, so no encoding is needed. Legacy query-param form
 // (?name=&path=…) is kept as a fallback for manual/programmatic navigations.
+//
+// `ensName` is the resolution target — either a `.eth` name (ENS mode) or a
+// `0x<40hex>` contract address (w3eth.io / homepage address mode). The SW
+// dispatches based on the format. `mode` is exposed for UI affordances that
+// only make sense in one mode (ENS history link, eth.limo fallback, etc.).
+type TargetMode = "ens" | "address";
+
 function parseTarget(): {
   ensName: string;
   path: string;
   search: string;
   hash: string;
+  mode: TargetMode;
 } {
   const raw = location.hash.startsWith("#") ? location.hash.slice(1) : "";
   if (raw) {
     try {
       const u = new URL(raw);
+      const host = u.hostname.replace(/\.$/, "").toLowerCase();
+      // w3eth.io subdomain is the contract address directly.
+      const addrMatch = host.match(/^(0x[a-f0-9]{40})\.w3eth\.io$/i);
+      if (addrMatch && addrMatch[1]) {
+        return {
+          ensName: addrMatch[1].toLowerCase(),
+          path: u.pathname || "/",
+          search: u.search,
+          hash: u.hash,
+          mode: "address",
+        };
+      }
       return {
-        ensName: u.hostname.replace(/\.$/, "").toLowerCase(),
+        ensName: host,
         path: u.pathname || "/",
         search: u.search,
         hash: u.hash,
+        mode: "ens",
       };
     } catch {
       /* fall through to query-string form */
     }
   }
   const p = new URLSearchParams(location.search);
+  const name = (p.get("name") ?? "").toLowerCase();
+  const mode: TargetMode = /^0x[a-f0-9]{40}$/i.test(name) ? "address" : "ens";
   return {
-    ensName: (p.get("name") ?? "").toLowerCase(),
+    ensName: name,
     path: p.get("path") ?? "/",
     search: p.get("search") ?? "",
     hash: p.get("hash") ?? "",
+    mode,
   };
 }
 
-const { ensName, path, search, hash } = parseTarget();
+const { ensName, path, search, hash, mode } = parseTarget();
+const isAddressMode = mode === "address";
 
-document.title = ensName ? `resolving ${ensName}…` : "dapp3.eth";
+document.title = ensName
+  ? `resolving ${isAddressMode ? shortAddr(ensName) : ensName}…`
+  : "dapp3.eth";
+
+function shortAddr(addr: string): string {
+  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+}
 
 const nameEl = document.getElementById("name") as HTMLSpanElement;
 const statusEl = document.getElementById("status") as HTMLParagraphElement;
@@ -64,19 +97,30 @@ const ethlimoFallbackEl = document.getElementById(
 const ensHistoryEl = document.getElementById(
   "ensHistory",
 ) as HTMLAnchorElement;
+const setupCardEl = document.getElementById("setupCard") as HTMLDivElement;
+const setupCmdEl = document.getElementById("setupCmd") as HTMLPreElement;
+const setupJsonEl = document.getElementById("setupJson") as HTMLPreElement;
+const setupRecheckBtn = document.getElementById(
+  "setupRecheck",
+) as HTMLButtonElement;
+const setupStatusEl = document.getElementById("setupStatus") as HTMLDivElement;
 
-if (ensName && /^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) {
+if (!isAddressMode && ensName && /^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) {
   ensHistoryEl.href = `https://ens.eth.sh/history/${ensName}`;
   ensHistoryEl.hidden = false;
 }
 
-// Mechanically derive `<name>.eth.limo` from the ENS target so the user has a
-// way out if Helios sync or the local resolve never succeeds. Only shown on a
-// real error state — we don't want to nudge users off our path during normal
-// "still syncing" waits.
+// Mechanically derive a public-gateway fallback URL so the user has a way out
+// if Helios sync or the local resolve never succeeds. ENS mode → `eth.limo`;
+// address mode → `w3eth.io`. Only shown on a real error state — we don't want
+// to nudge users off our path during normal "still syncing" waits.
 function ethLimoFallbackUrl(): string | null {
-  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) return null;
   const p = path.startsWith("/") ? path : `/${path}`;
+  if (isAddressMode) {
+    if (!/^0x[a-f0-9]{40}$/.test(ensName)) return null;
+    return `https://${ensName}.w3eth.io${p}${search}${hash}`;
+  }
+  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) return null;
   return `https://${ensName}.limo${p}${search}${hash}`;
 }
 
@@ -87,6 +131,9 @@ function showError(detail: string) {
   const fb = ethLimoFallbackUrl();
   if (fb) {
     ethlimoFallbackEl.href = fb;
+    ethlimoFallbackEl.textContent = isAddressMode
+      ? "Open on w3eth.io →"
+      : "Open on eth.limo gateway →";
     ethlimoFallbackEl.hidden = false;
   }
 }
@@ -96,6 +143,123 @@ function clearError() {
   stageSubEl.hidden = false;
   ethlimoFallbackEl.hidden = true;
 }
+
+// Setup-card state (Kubo CORS not configured). The card replaces the loader
+// + status text inline so the user keeps the address-bar context. Recheck
+// re-runs probe + resolution; on success the SW redirects the tab to the
+// gateway URL and this page is replaced.
+const COMBINED_KUBO_CMD = (() => {
+  const id = chrome.runtime.id;
+  return `ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["chrome-extension://${id}"]' && ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST"]'`;
+})();
+
+setupCmdEl.textContent = COMBINED_KUBO_CMD;
+setupJsonEl.innerHTML = colorizeJson(
+  [
+    `{`,
+    `  ...`,
+    `  "API": {`,
+    `    "HTTPHeaders": {`,
+    `      ...`,
+    `      "Access-Control-Allow-Methods": ["POST"],`,
+    `      "Access-Control-Allow-Origin": [`,
+    `        ...,`,
+    `        "chrome-extension://${chrome.runtime.id}"`,
+    `      ]`,
+    `    }`,
+    `  },`,
+    `  ...`,
+    `}`,
+  ].join("\n"),
+);
+
+function showSetupCard() {
+  errorCardEl.hidden = true;
+  ethlimoFallbackEl.hidden = true;
+  stageSubEl.hidden = true;
+  loaderEl.hidden = true;
+  statusEl.textContent = "Kubo needs one-time setup";
+  setupCardEl.hidden = false;
+}
+
+function hideSetupCard() {
+  setupCardEl.hidden = true;
+  loaderEl.hidden = false;
+}
+
+function setSetupStatus(tone: "ok" | "warn" | "bad", text: string) {
+  setupStatusEl.hidden = false;
+  setupStatusEl.classList.remove("ok", "warn", "bad");
+  setupStatusEl.classList.add(tone);
+  setupStatusEl.textContent = text;
+}
+
+function clearSetupStatus() {
+  setupStatusEl.hidden = true;
+  setupStatusEl.textContent = "";
+  setupStatusEl.classList.remove("ok", "warn", "bad");
+}
+
+setupCardEl
+  .querySelectorAll<HTMLButtonElement>(".setup-copy")
+  .forEach((btn) => {
+    const label = btn.querySelector<HTMLElement>(".setup-copy-label");
+    btn.addEventListener("click", async () => {
+      const target = btn.dataset.target;
+      if (!target) return;
+      const el = document.getElementById(target);
+      const text = el?.textContent ?? "";
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        if (el) {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+        return;
+      }
+      btn.classList.add("copied");
+      if (label) label.textContent = "Copied";
+      setTimeout(() => {
+        btn.classList.remove("copied");
+        if (label) label.textContent = "Copy";
+      }, 1500);
+    });
+  });
+
+setupRecheckBtn.addEventListener("click", async () => {
+  setupRecheckBtn.disabled = true;
+  setSetupStatus("warn", "Probing Kubo API…");
+  const probe = await probeKuboApi();
+  if (!probe.ok) {
+    setupRecheckBtn.disabled = false;
+    if (probe.kind.kind === "cors") {
+      setSetupStatus(
+        "bad",
+        "Kubo is still rejecting this extension's origin. Did the daemon restart?",
+      );
+    } else if (probe.kind.kind === "unreachable") {
+      setSetupStatus(
+        "bad",
+        `Can't reach Kubo at 127.0.0.1:5001. Is IPFS Desktop running? (${probe.kind.cause})`,
+      );
+    } else {
+      setSetupStatus("bad", `Kubo returned an unexpected response: ${probe.kind.kind}.`);
+    }
+    return;
+  }
+  setSetupStatus("ok", "Kubo allowed the extension. Retrying…");
+  // Hand off to the normal resolve path; on success the SW navigates the tab
+  // to <cid>.ipfs.localhost. On any further failure, triggerResolve will
+  // surface the error card or re-show this setup card.
+  hideSetupCard();
+  clearSetupStatus();
+  await triggerResolve(false);
+});
 
 type BadgeTone = "ok" | "syncing" | "warn";
 
@@ -148,7 +312,22 @@ paintBadge(undefined);
 
 const displayPath = `${path === "/" ? "" : path}${search}${hash}`;
 if (ensName) {
-  colorize(nameEl, `${ensName}${displayPath}`);
+  if (isAddressMode) {
+    nameEl.textContent = "";
+    const host = document.createElement("span");
+    host.className = "u-host";
+    host.textContent = ensName;
+    host.title = ensName;
+    nameEl.appendChild(host);
+    if (displayPath) {
+      const p = document.createElement("span");
+      p.className = "u-path";
+      p.textContent = displayPath;
+      nameEl.appendChild(p);
+    }
+  } else {
+    colorize(nameEl, `${ensName}${displayPath}`);
+  }
 } else {
   nameEl.textContent = "(no name)";
 }
@@ -208,8 +387,12 @@ async function triggerResolve(bypassHelios = false) {
   polling = false;
   statusEl.textContent = bypassHelios
     ? "Resolving via RPC (skipping Helios)…"
-    : "Fetching ENS contenthash…";
+    : isAddressMode
+      ? "Fetching onchain HTML…"
+      : "Fetching ENS contenthash…";
   setBar("loading");
+  hideSetupCard();
+  clearSetupStatus();
   const resp = await chrome.runtime.sendMessage({
     type: "interstitial-retry",
     name: ensName,
@@ -219,6 +402,14 @@ async function triggerResolve(bypassHelios = false) {
     bypassHelios,
   });
   if (!resp?.ok) {
+    // Kubo CORS rejection is a one-time setup issue, not a per-site failure.
+    // Show the setup card inline (PRD_ERC4804.md §6.1) so the user keeps the
+    // address-bar context instead of being bounced to a separate page.
+    if (resp?.code === "kubo-cors-blocked") {
+      showSetupCard();
+      setBar("bad");
+      return;
+    }
     statusEl.textContent = "Resolution failed";
     showError(resp?.error ?? "Unknown error");
     setBar("bad");
@@ -277,7 +468,7 @@ function applyStarState(favorited: boolean) {
   }
 }
 
-if (ensName) {
+if (ensName && !isAddressMode) {
   const bookmarkPath = normalizePath(`${path}${search}${hash}` || "/");
   const refreshStar = async () => {
     applyStarState(await isBookmarked(ensName, bookmarkPath));

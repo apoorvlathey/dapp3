@@ -51,7 +51,7 @@ async function sendOffscreen<T>(
   });
 }
 
-const DEFAULT_CONSENSUS_RPC = "https://ethereum-beacon-api.publicnode.com";
+const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
 
 async function ensureHostPermission(url: string): Promise<void> {
   let parsed: URL;

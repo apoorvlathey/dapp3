@@ -26,21 +26,23 @@
         </p>
         <form id="rpc-form" class="consensus-form">
           <div class="input-row">
-            <input
-              type="url"
-              id="rpc-input"
-              placeholder="https://your-rpc.example/…"
-              autocomplete="off"
-              spellcheck="false"
-              required
-            />
-            <button
-              type="button"
-              id="rpc-reveal"
-              class="icon"
-              title="Edit URL"
-              aria-label="Edit URL"
-            ></button>
+            <div class="input-with-icon">
+              <input
+                type="url"
+                id="rpc-input"
+                placeholder="https://your-rpc.example/…"
+                autocomplete="off"
+                spellcheck="false"
+                required
+              />
+              <button
+                type="button"
+                id="rpc-reveal"
+                class="icon"
+                title="Edit URL"
+                aria-label="Edit URL"
+              ></button>
+            </div>
             <button type="submit" id="rpc-apply">Save</button>
           </div>
           <p class="hint" id="rpc-status"></p>
@@ -72,20 +74,70 @@
         </form>
       </section>
 
+      <section id="web3-section">
+        <h2>Web3:// dapps (<a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a>)</h2>
+        <p class="hint">
+          Onchain HTML pinned to your local Kubo node. Each entry was
+          fetched via Helios-verified <code>eth_call</code> and is served
+          from <code>&lt;cid&gt;.ipfs.localhost:8080</code>. Evict an entry
+          to drop the pin and free Kubo storage.
+        </p>
+
+        <form id="web3-budgets" class="consensus-form">
+          <div class="input-row web3-budgets-row">
+            <label class="web3-budget-field">
+              <span class="meta-k">Size cap (MB)</span>
+              <input
+                type="number"
+                id="web3-size-cap"
+                min="1"
+                step="1"
+                inputmode="numeric"
+              />
+            </label>
+            <label class="web3-budget-field">
+              <span class="meta-k">Max entries</span>
+              <input
+                type="number"
+                id="web3-entry-budget"
+                min="1"
+                step="1"
+                inputmode="numeric"
+              />
+            </label>
+            <button type="submit" id="web3-budgets-apply">Save</button>
+          </div>
+          <p class="hint" id="web3-budgets-status"></p>
+        </form>
+
+        <div class="web3-totals" id="web3-totals">No web3 dapps cached.</div>
+        <ul class="web3-list" id="web3-list"></ul>
+      </section>
+
       <section>
         <h2>Gateway interception</h2>
         <p class="hint">
-          Rewrites <code>*.eth.limo</code> / <code>*.eth.link</code> to the
-          underlying <code>.eth</code> name and resolves locally. Turn off to
-          fall back to the public gateways.
+          Rewrites public ENS gateways to the underlying name/address and
+          resolves locally. Turn off to fall back to the public gateways.
         </p>
         <label class="toggle-row" for="intercept-ethlimo">
           <input type="checkbox" id="intercept-ethlimo" />
           <span class="toggle-text">
             <span class="toggle-title">Intercept eth.limo / eth.link links</span>
             <span class="toggle-sub" id="intercept-ethlimo-sub">
-              Requires a local IPFS node. Failed resolutions offer a one-click
-              fallback to the public gateway.
+              Rewrites <code>*.eth.limo</code> / <code>*.eth.link</code> to the
+              underlying <code>.eth</code> name. Requires a local IPFS node.
+            </span>
+          </span>
+        </label>
+        <label class="toggle-row" for="intercept-w3eth">
+          <input type="checkbox" id="intercept-w3eth" />
+          <span class="toggle-text">
+            <span class="toggle-title">Intercept w3eth.io links</span>
+            <span class="toggle-sub" id="intercept-w3eth-sub">
+              Rewrites <code>0x&lt;addr&gt;.w3eth.io</code> to a local
+              <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a>
+              resolution. Requires a local IPFS node.
             </span>
           </span>
         </label>
