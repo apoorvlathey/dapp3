@@ -887,7 +887,15 @@ async function mount(ctx: TabContext) {
   const currentUrlValue = () => `${ctx.ensName}${currentPath()}`;
   const field = wireAddressBar(refs, currentUrlValue);
 
-  refs.ensHistoryLink.href = `https://ens.eth.sh/history/${ctx.ensName.toLowerCase()}`;
+  // Address-mode navigations (0x<addr>.w3eth.io intercept, homepage 0x input)
+  // carry the contract address as `ensName`. There is no associated ENS name,
+  // so the history link has nothing to point at.
+  const isAddressNav = /^0x[a-f0-9]{40}$/i.test(ctx.ensName);
+  if (isAddressNav) {
+    refs.ensHistoryLink.style.display = "none";
+  } else {
+    refs.ensHistoryLink.href = `https://ens.eth.sh/history/${ctx.ensName.toLowerCase()}`;
+  }
 
   const render = () => {
     const { dot, label, title } = pickDot(ctx, currentStatus);
