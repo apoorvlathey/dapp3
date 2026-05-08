@@ -138,6 +138,23 @@ export async function heliosRequest<T = unknown>(
   return resp.result;
 }
 
+// The original reason from the most recent heliosRequest() failure. Used to
+// recover the actual error after viem's CCIP-read fallback path mangles it
+// into the misleading "import() is disallowed on ServiceWorkerGlobalScope".
+// See IMPLEMENTATION.md §4.2.
+let lastRpcError: { method: string; reason: string; ts: number } | null = null;
+
+export function consumeLastRpcError(
+  maxAgeMs = 2000,
+): { method: string; reason: string } | null {
+  if (!lastRpcError) return null;
+  const age = Date.now() - lastRpcError.ts;
+  const entry = lastRpcError;
+  lastRpcError = null;
+  if (age > maxAgeMs) return null;
+  return { method: entry.method, reason: entry.reason };
+}
+
 export function heliosEip1193Provider() {
   return {
     request: async ({
@@ -153,7 +170,10 @@ export function heliosEip1193Provider() {
         // Viem wraps this in a ContractFunctionExecutionError and — in an MV3
         // service worker — its catch path does `await import('ccip.js')` which
         // is disallowed in SW, masking the original reason. Log the raw Helios
-        // error so we can actually see it.
+        // error so we can actually see it, and stash it for the resolver to
+        // recover via consumeLastRpcError().
+        const reason = e instanceof Error ? e.message : String(e);
+        lastRpcError = { method, reason, ts: Date.now() };
         console.error(
           "[dapp3] helios request failed",
           { method, params },

@@ -7,6 +7,7 @@ import type {
   HeliosStatus,
   HeliosStatusMsg,
 } from "@/lib/helios-bridge";
+import { humanizeRpcError } from "@/lib/rpc-error";
 
 // publicnode serves every beacon endpoint Helios touches:
 //   - /eth/v1/beacon/headers/finalized (epoch-boundary root for bootstrap)
@@ -244,14 +245,37 @@ async function handleRequest(msg: HeliosRequestMsg): Promise<HeliosResponse> {
       method: msg.method,
       params: msg.params as unknown[],
     });
+    if (status.state === "synced") {
+      status = {
+        ...status,
+        rpcHealth: {
+          state: "ok",
+          lastSuccessTs: Date.now(),
+          lastError: status.rpcHealth?.lastError,
+          lastErrorTs: status.rpcHealth?.lastErrorTs,
+        },
+      };
+    }
     return { ok: true, result };
   } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
     console.error(
       "[dapp3] helios provider.request failed",
       { method: msg.method, params: msg.params },
       e,
     );
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    if (status.state === "synced") {
+      status = {
+        ...status,
+        rpcHealth: {
+          state: "failing",
+          lastError: humanizeRpcError(reason),
+          lastErrorTs: Date.now(),
+          lastSuccessTs: status.rpcHealth?.lastSuccessTs,
+        },
+      };
+    }
+    return { ok: false, error: reason };
   }
 }
 

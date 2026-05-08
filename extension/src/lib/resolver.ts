@@ -11,10 +11,12 @@ import { decode as decodeContentHash, getCodec } from "@ensdomains/content-hash"
 import { getSettings } from "@/lib/settings";
 import type { ResolveResponse } from "@/lib/messaging";
 import {
+  consumeLastRpcError,
   ensureHeliosBooted,
   heliosEip1193Provider,
   getHeliosStatus,
 } from "@/lib/helios-client";
+import { humanizeRpcError } from "@/lib/rpc-error";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { fetchErc4804, Web3FetchError } from "@/lib/web3url";
 import { addToKubo, KuboPinError, removeMfsPath, unpinFromKubo } from "@/lib/kubo";
@@ -131,7 +133,10 @@ export async function resolveEns(
       name: lower,
     })) as `0x${string}`;
   } catch (e) {
-    return { ok: false, error: `No ENS resolver for ${lower}: ${describe(e)}` };
+    return {
+      ok: false,
+      error: `No ENS resolver for ${lower}: ${describeRpcFailure(e)}`,
+    };
   }
 
   let raw: `0x${string}`;
@@ -145,7 +150,7 @@ export async function resolveEns(
   } catch (e) {
     return {
       ok: false,
-      error: `Failed to read contenthash for ${lower}: ${describe(e)}`,
+      error: `Failed to read contenthash for ${lower}: ${describeRpcFailure(e)}`,
     };
   }
 
@@ -188,11 +193,12 @@ export async function resolveEns(
       args: [namehash(lower)],
     })) as `0x${string}`;
   } catch (e) {
+    const detail = describeRpcFailure(e);
     return {
       ok: false,
       error: contenthashUsable
-        ? `Unsupported contenthash codec "${codec}" and addr() failed: ${describe(e)}`
-        : `${lower} has no contenthash and addr() failed: ${describe(e)}`,
+        ? `Unsupported contenthash codec "${codec}" and addr() failed: ${detail}`
+        : `${lower} has no contenthash and addr() failed: ${detail}`,
     };
   }
 
@@ -281,7 +287,7 @@ async function fetchPinAndCacheErc4804(
     if (e instanceof Web3FetchError) {
       return { ok: false, error: `web3-${e.detail.kind}: ${e.message}` };
     }
-    return { ok: false, error: `ERC-4804 probe failed: ${describe(e)}` };
+    return { ok: false, error: `ERC-4804 probe failed: ${describeRpcFailure(e)}` };
   }
 
   if (contentType && !/^\s*text\/html(?:\s*;|\s*$)/i.test(contentType)) {
@@ -381,4 +387,13 @@ async function evictWeb3(entry: {
 function describe(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+// Prefer the original Helios reason (stashed by heliosEip1193Provider) over
+// viem's wrapped/masked text. If no recent RPC error is recorded, fall back
+// to the caught error's message, then humanize whatever we end up with.
+function describeRpcFailure(e: unknown): string {
+  const stashed = consumeLastRpcError();
+  const raw = stashed?.reason ?? describe(e);
+  return humanizeRpcError(raw);
 }

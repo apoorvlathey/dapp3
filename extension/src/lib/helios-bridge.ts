@@ -33,6 +33,17 @@ export type HeliosStatus = {
   state: "idle" | "booting" | "syncing" | "synced" | "error";
   executionRpc?: string;
   error?: string;
+  // Execution-RPC health, observed from real provider.request() outcomes.
+  // Helios's `synced` state only reflects consensus-side sync; a green
+  // `synced` here can coexist with every eth_call returning HTTP 4xx/5xx
+  // because the user's primary RPC URL is misconfigured. The popup uses
+  // this to avoid showing a misleading "online" indicator.
+  rpcHealth?: {
+    state: "ok" | "failing" | "unknown";
+    lastError?: string;
+    lastErrorTs?: number;
+    lastSuccessTs?: number;
+  };
 };
 
 export type HeliosResponse<T = unknown> =

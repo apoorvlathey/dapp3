@@ -76,10 +76,20 @@ function renderHelios(status: HeliosStatus | null) {
       clearHeliosError();
       break;
     case "synced":
-      heliosEl.textContent = "online";
-      setStatus(heliosEl, "ok");
-      setDot(heliosDot, "ok");
-      clearHeliosError();
+      if (status.rpcHealth?.state === "failing") {
+        heliosEl.textContent = "RPC failing";
+        setStatus(heliosEl, "bad");
+        setDot(heliosDot, "bad");
+        showHeliosError(
+          status.rpcHealth.lastError ??
+            "The Ethereum RPC is rejecting requests.",
+        );
+      } else {
+        heliosEl.textContent = "online";
+        setStatus(heliosEl, "ok");
+        setDot(heliosDot, "ok");
+        clearHeliosError();
+      }
       break;
     case "error":
       heliosEl.textContent = "error";
