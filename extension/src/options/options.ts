@@ -24,6 +24,9 @@ const rpcRevealBtn = document.getElementById("rpc-reveal") as HTMLButtonElement;
 
 const heliosLiveEl = document.getElementById("helios-live") as HTMLElement;
 const heliosDotEl = document.getElementById("helios-dot") as HTMLElement;
+const heliosRestartBtn = document.getElementById(
+  "helios-restart",
+) as HTMLButtonElement;
 const consensusForm = document.getElementById(
   "consensus-form",
 ) as HTMLFormElement;
@@ -446,31 +449,66 @@ function renderHelios(status: HeliosStatus | null) {
   if (!status) {
     heliosLiveEl.textContent = "Unknown";
     setHeliosDot("idle");
+    setHeliosRestartBtn("Start", false);
     return;
   }
   switch (status.state) {
     case "idle":
       heliosLiveEl.textContent = "Idle";
       setHeliosDot("idle");
+      setHeliosRestartBtn("Restart", false);
       break;
     case "booting":
       heliosLiveEl.textContent = "Booting…";
       setHeliosDot("syncing");
+      setHeliosRestartBtn("Booting…", true);
       break;
     case "syncing":
       heliosLiveEl.textContent = "Syncing with consensus…";
       setHeliosDot("syncing");
+      setHeliosRestartBtn("Restart", false);
       break;
     case "synced":
       heliosLiveEl.textContent = "Synced · verifying onchain reads locally";
       setHeliosDot("ok");
+      setHeliosRestartBtn("Restart", false);
       break;
     case "error":
       heliosLiveEl.textContent = `Error: ${status.error ?? "unknown"}`;
       setHeliosDot("bad");
+      setHeliosRestartBtn("Restart", false);
       break;
   }
 }
+
+function setHeliosRestartBtn(label: string, disabled: boolean) {
+  // Don't stomp on the user's in-flight click — preserve the "Restarting…"
+  // label and disabled state until the next status tick after the round-trip.
+  if (heliosRestartBtn.dataset.busy === "1") return;
+  heliosRestartBtn.textContent = label;
+  heliosRestartBtn.disabled = disabled;
+}
+
+heliosRestartBtn.addEventListener("click", async () => {
+  heliosRestartBtn.dataset.busy = "1";
+  heliosRestartBtn.disabled = true;
+  heliosRestartBtn.textContent = "Restarting…";
+  try {
+    try {
+      await chrome.runtime.sendMessage({ type: "shutdown-helios" });
+    } catch {
+      /* best-effort */
+    }
+    renderHelios({ state: "booting" });
+    try {
+      await chrome.runtime.sendMessage({ type: "boot-helios" });
+    } catch {
+      /* status poll will surface any error */
+    }
+  } finally {
+    delete heliosRestartBtn.dataset.busy;
+  }
+});
 
 async function pollHelios() {
   while (true) {

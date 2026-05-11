@@ -272,6 +272,18 @@ button.primary:active {
   transform: translateY(1px);
 }
 
+button.helios-restart {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+button.helios-restart[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ---------- Meta label (section keys) ---------- */
 .meta-k {
   color: var(--text-subtle);
