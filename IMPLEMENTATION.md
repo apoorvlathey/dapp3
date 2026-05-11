@@ -172,7 +172,7 @@ Changing the default touches all four. Don't forget the one in `fetchFreshCheckp
 - **Extra HTML entry points** (`error`, `interstitial`, `offscreen`, `onboarding`) are listed in `rollupOptions.input`. Without this, their `<script>` refs wouldn't be rewritten to hashed asset paths.
 - **`modulePreload: false`** — see §4.1.
 - **CSP**: `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'`. The `wasm-unsafe-eval` directive allows Helios's WASM to instantiate. If it ever fails on an older `wasm-bindgen` output, relax to `unsafe-eval` — but the current version compiles fine with the narrow permission.
-- **Offscreen chunk is ~4.2 MB raw / 1.6 MB gzipped.** The size is dominated by inlined Helios WASM (base64'd into the JS). One-time cost per offscreen doc lifetime; fine for v1.
+- **Helios WASM is emitted as a separate `dist/assets/index_bg-[hash].wasm` (~3.1 MB).** `@a16z/helios`'s published `dist/lib.mjs` bundles the WASM as a base64 data URL inside JS, which Chrome Web Store reviewers flag as obfuscated code. `vite.config.ts` aliases `@a16z/helios` to the package's raw `lib.ts` source, which imports `./pkg/index.js` and loads the WASM via `new URL('index_bg.wasm', import.meta.url)` — Vite detects that pattern and emits the WASM as a standalone asset. The offscreen JS chunk drops to ~40 kB. If a Helios upgrade ever moves `lib.ts` or the `pkg/` layout, the alias breaks and the inlined `lib.mjs` silently comes back; grep the build output for `data:application/wasm` after a bump.
 
 ## 10. Known incidents and fixes
 

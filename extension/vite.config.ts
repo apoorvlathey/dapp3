@@ -6,9 +6,23 @@ import { fileURLToPath, URL } from "node:url";
 export default defineConfig({
   plugins: [crx({ manifest })],
   resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-    },
+    alias: [
+      {
+        find: "@",
+        replacement: fileURLToPath(new URL("./src", import.meta.url)),
+      },
+      // Helios's published `dist/lib.mjs` inlines its 3MB WASM as a base64
+      // data URL (their build uses @rollup/plugin-wasm). Chrome Web Store
+      // flagged that blob as obfuscated code. Redirect to the raw `lib.ts`
+      // source so Vite picks up `pkg/index.js`'s `new URL('index_bg.wasm',
+      // import.meta.url)` and emits the WASM as a separate asset.
+      {
+        find: /^@a16z\/helios$/,
+        replacement: fileURLToPath(
+          new URL("./node_modules/@a16z/helios/lib.ts", import.meta.url),
+        ),
+      },
+    ],
   },
   build: {
     target: "esnext",
