@@ -8,7 +8,8 @@ import {
 } from "@/lib/bookmarks";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { colorize } from "@/lib/url-field";
-import { probeKuboApi } from "@/lib/kubo";
+import { probeKuboApi, getKuboApiBase, setKuboApiConfig } from "@/lib/kubo";
+import { getSettings } from "@/lib/settings";
 import { colorizeJson } from "@/lib/colorize-json";
 
 // DNR redirects `http://foo.eth/path?q#h` → `<ext>/interstitial.html#<full-url>`.
@@ -245,7 +246,7 @@ setupRecheckBtn.addEventListener("click", async () => {
     } else if (probe.kind.kind === "unreachable") {
       setSetupStatus(
         "bad",
-        `Can't reach Kubo at 127.0.0.1:5001. Is IPFS Desktop running? (${probe.kind.cause})`,
+        `Can't reach Kubo at ${getKuboApiBase()}. Is IPFS Desktop running? (${probe.kind.cause})`,
       );
     } else {
       setSetupStatus("bad", `Kubo returned an unexpected response: ${probe.kind.kind}.`);
@@ -498,6 +499,10 @@ if (ensName && !isAddressMode) {
 }
 
 (async () => {
+  const s = await getSettings();
+  if (s.kuboApi) {
+    setKuboApiConfig(s.kuboApi);
+  }
   if (await tryCache()) return;
   pollLoop();
 })();

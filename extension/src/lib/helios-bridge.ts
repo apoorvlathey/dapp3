@@ -32,6 +32,7 @@ export type HeliosShutdownMsg = {
 export type HeliosStatus = {
   state: "idle" | "booting" | "syncing" | "synced" | "error";
   executionRpc?: string;
+  consensusRpc?: string;
   error?: string;
   // Execution-RPC health, observed from real provider.request() outcomes.
   // Helios's `synced` state only reflects consensus-side sync; a green

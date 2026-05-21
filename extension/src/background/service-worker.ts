@@ -4,7 +4,11 @@ import {
   resolveEns,
   getOrStartHelios,
 } from "@/lib/resolver";
-import { buildSubdomainUrl, parseGatewayHost } from "@/lib/gateway";
+import {
+  buildSubdomainUrl,
+  parseGatewayHost,
+  setIpfsGatewayConfig,
+} from "@/lib/gateway";
 import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
 import type {
@@ -20,7 +24,7 @@ import {
   removeWeb3CacheEntry,
   mfsPathFor,
 } from "@/lib/web3url-cache";
-import { removeMfsPath, unpinFromKubo } from "@/lib/kubo";
+import { removeMfsPath, setKuboApiConfig, unpinFromKubo } from "@/lib/kubo";
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
 const W3ETH_HOST_RE = /^0x[a-f0-9]{40}\.w3eth\.io\.?$/i;
@@ -728,22 +732,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get-helios-status") {
+    console.log("[dapp3] SW: handling get-helios-status");
     getHeliosStatus().then(
-      (status) => sendResponse({ ok: true, status }),
-      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
+      (status) => {
+        console.log("[dapp3] SW: get-helios-status response", status);
+        sendResponse({ ok: true, status });
+      },
+      (e) => {
+        console.error("[dapp3] SW: get-helios-status error", e);
+        sendResponse({ ok: false, error: e?.message ?? String(e) });
+      },
     );
     return true;
   }
 
   if (msg?.type === "shutdown-helios") {
+    console.log("[dapp3] SW: handling shutdown-helios");
     shutdownHelios().then(() => sendResponse({ ok: true }));
     return true;
   }
 
   if (msg?.type === "boot-helios") {
+    console.log("[dapp3] SW: handling boot-helios");
     getOrStartHelios().then(
-      (status) => sendResponse({ ok: true, status }),
-      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
+      (status) => {
+        console.log("[dapp3] SW: boot-helios result", status);
+        sendResponse({ ok: true, status });
+      },
+      (e) => {
+        console.error("[dapp3] SW: boot-helios error", e);
+        sendResponse({ ok: false, error: e?.message ?? String(e) });
+      },
     );
     return true;
   }
@@ -918,19 +937,31 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // it against the new URL. Also keep the eth.limo DNR rule in sync with the
 // user's preference.
 let activeRpc: string | undefined;
+let activeConsensusRpc: string | undefined;
 let activeInterceptEthLimo: boolean | undefined;
 let activeInterceptW3Eth: boolean | undefined;
 let activeOnboardingComplete: boolean | undefined;
 getSettings().then((s) => {
   activeRpc = s.rpcUrl;
+  activeConsensusRpc = s.consensusRpc;
   activeInterceptEthLimo = s.interceptEthLimo;
   activeInterceptW3Eth = s.interceptW3Eth;
   activeOnboardingComplete = !!s.onboardingComplete;
+  // Initialize gateway config on startup
+  if (s.ipfsGateway) {
+    setIpfsGatewayConfig(s.ipfsGateway);
+  }
+  // Initialize Kubo API config on startup
+  if (s.kuboApi) {
+    setKuboApiConfig(s.kuboApi);
+  }
 });
-onSettingsChanged((s) => {
-  const next = s.rpcUrl;
-  if (next !== activeRpc) {
-    activeRpc = next;
+onSettingsChanged(async (s) => {
+  const nextRpc = s.rpcUrl;
+  const nextConsensusRpc = s.consensusRpc;
+  if (nextRpc !== activeRpc || nextConsensusRpc !== activeConsensusRpc) {
+    activeRpc = nextRpc;
+    activeConsensusRpc = nextConsensusRpc;
     shutdownHelios()
       .then(() => getOrStartHelios().catch(() => undefined))
       .catch(() => undefined);
@@ -951,6 +982,14 @@ onSettingsChanged((s) => {
   if (onboarded !== activeOnboardingComplete) {
     activeOnboardingComplete = onboarded;
     syncActionPopup(onboarded);
+  }
+  // Sync cached gateway config when settings change
+  if (s.ipfsGateway) {
+    setIpfsGatewayConfig(s.ipfsGateway);
+  }
+  // Sync cached Kubo API config when settings change
+  if (s.kuboApi) {
+    setKuboApiConfig(s.kuboApi);
   }
 });
 

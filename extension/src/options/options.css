@@ -168,6 +168,11 @@ a:hover { color: var(--brand-300); }
   box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.18);
 }
 
+.dot.warn {
+  background: var(--amber-500);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+
 .dot.syncing {
   background: var(--sky-400);
   box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
@@ -371,6 +376,10 @@ button.helios-restart[disabled] {
 
 .hint.bad {
   color: var(--rose-400);
+}
+
+.hint.warn {
+  color: var(--amber-400);
 }
 
 .consensus-form .hint {

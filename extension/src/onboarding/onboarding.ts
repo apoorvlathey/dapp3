@@ -1,6 +1,12 @@
 import { getSettings, setSettings } from "@/lib/settings";
 import type { HeliosStatus } from "@/lib/helios-bridge";
-import { probeKuboApi } from "@/lib/kubo";
+import { requestHostPermission } from "@/lib/helios-client";
+import {
+  probeKuboApi,
+  setKuboApiConfig,
+  type KuboProbeResult,
+} from "@/lib/kubo";
+import { parseGatewayUrl, formatGatewayUrl } from "@/lib/gateway";
 import { colorizeJson } from "@/lib/colorize-json";
 
 const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
@@ -34,30 +40,108 @@ function showStep(s: StepId) {
 }
 
 // --- Step 1: IPFS ---
-const ipfsDot = document.getElementById("ipfs-dot") as HTMLSpanElement;
-const ipfsText = document.getElementById("ipfs-status-text") as HTMLSpanElement;
+const gatewayDot = document.getElementById("gateway-dot") as HTMLSpanElement;
+const gatewayText = document.getElementById("gateway-status-text") as HTMLSpanElement;
+const kuboApiDot = document.getElementById("kubo-api-dot") as HTMLSpanElement;
+const kuboApiText = document.getElementById("kubo-api-status-text") as HTMLSpanElement;
 const ipfsNext = document.getElementById("ipfs-next") as HTMLButtonElement;
 const ipfsRecheck = document.getElementById("ipfs-recheck") as HTMLButtonElement;
+const ipfsForm = document.getElementById("ipfs-form") as HTMLFormElement;
+const ipfsGatewayInput = document.getElementById(
+  "ipfs-gateway-input",
+) as HTMLInputElement;
+const kuboApiInput = document.getElementById(
+  "kubo-api-input",
+) as HTMLInputElement;
+const ipfsPermPreview = document.getElementById(
+  "ipfs-perm-preview",
+) as HTMLUListElement;
 
 // Tracks the most recent IPFS probe result so the finish handler can persist
 // `interceptEthLimo` accurately. Defaults to false so a user who never makes
 // it through step 1 never has eth.limo / eth.link interception silently enabled.
 let lastIpfsOk = false;
 
-async function probeIpfs(): Promise<boolean> {
+async function probeIpfsSetup(): Promise<boolean> {
   const panel = panels[1];
   // Don't strip state-ok/state-bad here — doing so reveals the "No node yet?"
   // hint for the duration of the probe even when the last result was green,
   // which flashes as a brief flicker on Re-check. Only commit the new state
   // once the probe resolves.
-  ipfsDot.classList.remove("ok", "bad");
+  gatewayDot.classList.remove("ok", "bad");
+  kuboApiDot.classList.remove("ok", "bad");
   ipfsRecheck.classList.add("spinning");
-  ipfsText.textContent = "Checking Kubo gateway…";
+  gatewayText.textContent = "Checking IPFS gateway…";
+  kuboApiText.textContent = "Checking Kubo API…";
+
+  // Parse both URLs from the inputs
+  const gatewayUrl = ipfsGatewayInput.value.trim() || "http://localhost:8080";
+  const parsedGateway = parseGatewayUrl(gatewayUrl);
+  const apiUrl = kuboApiInput.value.trim() || "http://127.0.0.1:5001";
+  const parsedApi = parseGatewayUrl(apiUrl);
+
+  if (!parsedGateway) {
+    gatewayDot.classList.add("bad");
+    gatewayText.textContent = "Invalid gateway URL format";
+    kuboApiDot.classList.add("bad");
+    kuboApiText.textContent = "Waiting for valid gateway URL…";
+    ipfsNext.disabled = true;
+    panel.classList.remove("state-ok");
+    panel.classList.add("state-bad");
+    lastIpfsOk = false;
+    setTimeout(() => ipfsRecheck.classList.remove("spinning"), 400);
+    return false;
+  }
+
+  if (!parsedApi) {
+    kuboApiDot.classList.add("bad");
+    kuboApiText.textContent = "Invalid Kubo API URL format";
+    ipfsNext.disabled = true;
+    panel.classList.remove("state-ok");
+    panel.classList.add("state-bad");
+    lastIpfsOk = false;
+    setTimeout(() => ipfsRecheck.classList.remove("spinning"), 400);
+    return false;
+  }
+
+  // Request permissions for both origins at once
+  const origins = [
+    `${parsedGateway.protocol}//${parsedGateway.host}:${parsedGateway.port}/*`,
+    `${parsedApi.protocol}//${parsedApi.host}:${parsedApi.port}/*`,
+  ];
+  const hasAll = await chrome.permissions.contains({ origins });
+  if (!hasAll) {
+    const granted = await chrome.permissions.request({ origins });
+    if (!granted) {
+      gatewayDot.classList.add("bad");
+      gatewayText.textContent = "Permission denied — can't reach configured hosts.";
+      kuboApiDot.classList.add("bad");
+      kuboApiText.textContent = "Permission denied — can't reach configured hosts.";
+      ipfsNext.disabled = true;
+      panel.classList.remove("state-ok");
+      panel.classList.add("state-bad");
+      lastIpfsOk = false;
+      setTimeout(() => ipfsRecheck.classList.remove("spinning"), 400);
+      return false;
+    }
+  }
+
+  // Save both configs to settings
+  await setSettings({
+    ipfsGateway: {
+      protocol: parsedGateway.protocol,
+      host: parsedGateway.host,
+      port: parsedGateway.port,
+    },
+  });
+  setKuboApiConfig(parsedApi);
+
   // Probe the subdomain gateway with the empty-UnixFS CID. `no-cors` means we
   // cannot read the response, but a resolved promise proves the port answered
-  // — i.e. Kubo is up and serving subdomains on localhost:8080.
+  // — i.e. Kubo is up and serving subdomains on the configured gateway.
+  let gatewayOk = false;
   try {
-    await fetch("http://bafkqaaa.ipfs.localhost:8080/", {
+    await fetch(`${parsedGateway.protocol}//bafkqaaa.ipfs.${parsedGateway.host}:${parsedGateway.port}/`, {
       mode: "no-cors",
       // The gateway serves this empty-UnixFS CID with
       // `Cache-Control: public, max-age=31536000, immutable`, so once the user
@@ -67,36 +151,75 @@ async function probeIpfs(): Promise<boolean> {
       cache: "no-store",
       signal: AbortSignal.timeout(2500),
     });
-    ipfsDot.classList.add("ok");
-    ipfsText.textContent = "Connected at localhost:8080";
-    ipfsNext.disabled = false;
+    gatewayDot.classList.add("ok");
+    gatewayText.textContent = `Connected at ${parsedGateway.host}:${parsedGateway.port}`;
+    gatewayOk = true;
+  } catch (e) {
+    gatewayDot.classList.add("bad");
+    gatewayText.textContent = `Not reachable: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  // Probe Kubo RPC API
+  let apiOk = false;
+  const apiResult = await probeKuboApi();
+  if (apiResult.ok) {
+    kuboApiDot.classList.add("ok");
+    kuboApiText.textContent = "Kubo API connected";
+    apiOk = true;
+  } else {
+    kuboApiDot.classList.add("bad");
+    switch (apiResult.kind.kind) {
+      case "cors":
+        kuboApiText.textContent = "Kubo API CORS issue — see instructions below";
+        break;
+      case "unreachable":
+        kuboApiText.textContent = `API not reachable: ${apiResult.kind.cause}`;
+        break;
+      case "http":
+        kuboApiText.textContent = `API error: HTTP ${apiResult.kind.status} — ${apiResult.kind.body}`;
+        break;
+      case "parse":
+        kuboApiText.textContent = `API error: unparseable response — ${apiResult.kind.body}`;
+        break;
+    }
+  }
+
+  // Surface the ERC-4804 CORS warning if needed
+  await probeKuboApiAndRender(apiResult);
+
+  // Gate Continue on both connections being healthy
+  ipfsNext.disabled = !(gatewayOk && apiOk);
+  if (gatewayOk && apiOk) {
     panel.classList.remove("state-bad");
     panel.classList.add("state-ok");
     lastIpfsOk = true;
-    return true;
-  } catch (e) {
-    ipfsDot.classList.add("bad");
-    ipfsText.textContent = `Not reachable: ${e instanceof Error ? e.message : String(e)}`;
-    ipfsNext.disabled = true;
+  } else {
     panel.classList.remove("state-ok");
     panel.classList.add("state-bad");
     lastIpfsOk = false;
-    return false;
-  } finally {
-    // Kill the spin a tick after the probe settles so the animation completes
-    // even for near-instant responses (cached failures resolve in <10ms).
-    setTimeout(() => ipfsRecheck.classList.remove("spinning"), 400);
   }
+
+  // Kill the spin a tick after the probe settles so the animation completes
+  // even for near-instant responses (cached failures resolve in <10ms).
+  setTimeout(() => ipfsRecheck.classList.remove("spinning"), 400);
+  return gatewayOk && apiOk;
 }
 
-// Probe Kubo's RPC API and surface a non-blocking warning if the extension
-// origin is not allowlisted. ERC-4804 dapps need this; standard IPFS dapps
-// don't, so we don't gate "Continue" on it. PRD_ERC4804.md §6.2.
-async function probeKuboApiAndRender() {
+// Probe Kubo's RPC API and surface a warning if the extension origin is not
+// allowlisted. Accepts an optional pre-fetched result so the caller can probe
+// once and render both the status indicator and the warning from the same data.
+async function probeKuboApiAndRender(providedResult?: KuboProbeResult) {
   const panel = panels[1];
   panel.querySelector("#api-warning")?.remove();
 
-  const result = await probeKuboApi();
+  // Apply the Kubo API URL from the input before probing
+  const apiUrl = kuboApiInput.value.trim() || "http://127.0.0.1:5001";
+  const parsedApi = parseGatewayUrl(apiUrl);
+  if (parsedApi) {
+    setKuboApiConfig(parsedApi);
+  }
+
+  const result = providedResult ?? await probeKuboApi();
   if (result.ok) return;
   if (result.kind.kind !== "cors") return; // unreachable already covered by gateway probe
 
@@ -214,11 +337,68 @@ async function probeKuboApiAndRender() {
   else panel.appendChild(wrap);
 }
 
+function renderIpfsPermPreview() {
+  ipfsPermPreview.innerHTML = "";
+  const items: string[] = [];
+  try {
+    const u = new URL(ipfsGatewayInput.value);
+    items.push(`${u.origin}  (your IPFS gateway — reads IPFS content)`);
+  } catch {
+    items.push("<your IPFS gateway, once entered above>");
+  }
+  for (const t of items) {
+    const li = document.createElement("li");
+    li.textContent = t;
+    ipfsPermPreview.appendChild(li);
+  }
+}
+
+ipfsGatewayInput.addEventListener("input", renderIpfsPermPreview);
+renderIpfsPermPreview();
+
 ipfsRecheck.addEventListener("click", async () => {
-  const ok = await probeIpfs();
-  if (ok) await probeKuboApiAndRender();
+  await probeIpfsSetup();
 });
-ipfsNext.addEventListener("click", () => showStep(2));
+
+ipfsNext.addEventListener("click", async () => {
+  // Ensure the gateway URL is saved before proceeding
+  const gatewayUrl = ipfsGatewayInput.value.trim() || "http://localhost:8080";
+  const parsed = parseGatewayUrl(gatewayUrl);
+  if (parsed) {
+    const origin = `${parsed.protocol}//${parsed.host}:${parsed.port}/*`;
+    const has = await chrome.permissions.contains({ origins: [origin] });
+    if (!has) {
+      const granted = await chrome.permissions.request({ origins: [origin] });
+      if (!granted) return;
+    }
+    await setSettings({
+      ipfsGateway: {
+        protocol: parsed.protocol,
+        host: parsed.host,
+        port: parsed.port,
+      },
+    });
+  }
+  // Also save the Kubo API URL
+  const apiUrl = kuboApiInput.value.trim() || "http://127.0.0.1:5001";
+  const parsedApi = parseGatewayUrl(apiUrl);
+  if (parsedApi) {
+    const origin = `${parsedApi.protocol}//${parsedApi.host}:${parsedApi.port}/*`;
+    const has = await chrome.permissions.contains({ origins: [origin] });
+    if (!has) {
+      const granted = await chrome.permissions.request({ origins: [origin] });
+      if (!granted) return;
+    }
+    await setSettings({
+      kuboApi: {
+        protocol: parsedApi.protocol,
+        host: parsedApi.host,
+        port: parsedApi.port,
+      },
+    });
+  }
+  showStep(2);
+});
 
 // --- Step 2: RPC ---
 const rpcForm = document.getElementById("rpc-form") as HTMLFormElement;
@@ -283,7 +463,7 @@ rpcForm.addEventListener("submit", async (e) => {
     );
     return;
   }
-  await setSettings({ rpcUrl: url });
+  await setSettings({ rpcUrl: url, consensusRpc: consensus });
   showStep(3);
   void startHelios();
 });
@@ -416,20 +596,28 @@ function renderHelios(status: HeliosStatus | null) {
 }
 
 async function startHelios() {
-  // Explicitly ask the SW to boot Helios. The SW's implicit boot via
-  // onSettingsChanged only fires when the execution rpcUrl actually changes,
-  // so on a page reload or a consensus-RPC-only edit it would never fire and
-  // step 3 would poll "not yet started" forever.
-  chrome.runtime.sendMessage({ type: "boot-helios" }).catch(() => {
-    /* status poll below will surface any error */
-  });
+  const { rpcUrl, consensusRpc } = await getSettings();
+  const consensus = consensusRpc || DEFAULT_CONSENSUS_RPC;
+  try {
+    if (rpcUrl) await requestHostPermission(rpcUrl);
+    await requestHostPermission(consensus);
+  } catch (e) {
+    console.error("[dapp3] onboarding: host permission request failed", e);
+  }
+  console.log("[dapp3] onboarding: sending boot-helios");
+  chrome.runtime.sendMessage({ type: "boot-helios" }).then(
+    (resp) => console.log("[dapp3] onboarding: boot-helios response", resp),
+    (e) => console.error("[dapp3] onboarding: boot-helios failed", e),
+  );
   while (currentStep === 3) {
     try {
       const resp = await chrome.runtime.sendMessage({
         type: "get-helios-status",
       });
+      console.log("[dapp3] onboarding: get-helios-status poll", resp?.status);
       renderHelios(resp?.status ?? null);
-    } catch {
+    } catch (e) {
+      console.error("[dapp3] onboarding: get-helios-status poll error", e);
       renderHelios(null);
     }
     await new Promise((r) => setTimeout(r, 1000));
@@ -466,9 +654,17 @@ syncBack.addEventListener("click", async () => {
 
 // --- Init ---
 (async () => {
-  const gatewayOk = await probeIpfs();
-  if (gatewayOk) await probeKuboApiAndRender();
   const s = await getSettings();
+  // Prefill the IPFS gateway URL if we have one saved
+  if (s.ipfsGateway) {
+    ipfsGatewayInput.value = formatGatewayUrl(s.ipfsGateway);
+  }
+  // Prefill the Kubo API URL if we have one saved
+  if (s.kuboApi) {
+    kuboApiInput.value = formatGatewayUrl(s.kuboApi);
+    setKuboApiConfig(s.kuboApi);
+  }
+  await probeIpfsSetup();
   // Prefill the execution RPC. Default to eth.drpc.org for new users; if the
   // user already has a saved RPC (e.g. revisiting onboarding), keep it.
   rpcInput.value = s.rpcUrl ?? "https://eth.drpc.org";

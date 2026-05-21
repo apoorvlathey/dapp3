@@ -5,6 +5,17 @@ import {
   DEFAULT_WEB3_SIZE_CAP_BYTES,
   type Web3CacheEntry,
 } from "@/lib/web3url-cache";
+import {
+  parseGatewayUrl,
+  formatGatewayUrl,
+  defaultGatewayConfig,
+} from "@/lib/gateway";
+import {
+  setKuboApiConfig,
+  getKuboApiConfig,
+  probeKuboApi,
+  describeKuboPinError,
+} from "@/lib/kubo";
 
 const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
 // Suggestions populated into the shared `<datalist id="beacon-endpoints">`.
@@ -78,6 +89,35 @@ const checkpointStatus = document.getElementById(
   "checkpoint-status",
 ) as HTMLElement;
 
+// IPFS Gateway elements
+const ipfsForm = document.getElementById("ipfs-form") as HTMLFormElement;
+const ipfsGatewayInput = document.getElementById(
+  "ipfs-gateway-input",
+) as HTMLInputElement;
+const ipfsGatewayApplyBtn = document.getElementById(
+  "ipfs-gateway-apply",
+) as HTMLButtonElement;
+const ipfsGatewayDot = document.getElementById(
+  "ipfs-gateway-dot",
+) as HTMLSpanElement;
+const ipfsGatewayStatus = document.getElementById(
+  "ipfs-gateway-status",
+) as HTMLSpanElement;
+
+// Kubo API elements
+const kuboApiForm = document.getElementById("kubo-api-form") as HTMLFormElement;
+const kuboApiInput = document.getElementById(
+  "kubo-api-input",
+) as HTMLInputElement;
+const kuboApiApplyBtn = document.getElementById(
+  "kubo-api-apply",
+) as HTMLButtonElement;
+const kuboApiDot = document.getElementById(
+  "kubo-api-dot",
+) as HTMLSpanElement;
+const kuboApiStatus = document.getElementById(
+  "kubo-api-status",
+) as HTMLSpanElement;
 const PENCIL_SVG = `
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"
        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -250,10 +290,7 @@ consensusForm.addEventListener("submit", async (e) => {
     }
   }
 
-  // Empty string in storage means "use default" — if the user typed the
-  // default URL back, normalize to empty to keep settings clean.
-  const toStore = next === DEFAULT_CONSENSUS_RPC ? undefined : next;
-  await setSettings({ consensusRpc: toStore });
+  await setSettings({ consensusRpc: next });
 
   // The SW only reboots Helios automatically when rpcUrl changes, so a
   // consensus-only edit needs an explicit shutdown + boot round-trip.
@@ -540,6 +577,12 @@ onSettingsChanged((s) => {
   if (document.activeElement !== checkpointInput) {
     syncCheckpointUI(s.checkpoint);
   }
+  if (document.activeElement !== ipfsGatewayInput) {
+    syncIpfsGatewayUI(s.ipfsGateway);
+  }
+  if (document.activeElement !== kuboApiInput) {
+    syncKuboApiUI(s.kuboApi);
+  }
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
   if (
@@ -701,6 +744,194 @@ function renderWeb3List(entries: Web3CacheEntry[]) {
   }
 }
 
+// --- IPFS Gateway ---
+function syncIpfsGatewayUI(config: { protocol: string; host: string; port: number } | undefined) {
+  const effective = config ?? defaultGatewayConfig();
+  ipfsGatewayInput.value = formatGatewayUrl(effective);
+  ipfsGatewayStatus.textContent = config ? "Gateway configured" : "Using default gateway";
+  ipfsGatewayStatus.className = "hint";
+  ipfsGatewayDot.classList.remove("ok", "bad");
+}
+
+async function probeIpfsGateway(): Promise<boolean> {
+  const gatewayUrl = ipfsGatewayInput.value.trim() || "http://localhost:8080";
+  const parsed = parseGatewayUrl(gatewayUrl);
+  if (!parsed) {
+    ipfsGatewayStatus.textContent = "Invalid gateway URL format";
+    ipfsGatewayStatus.className = "hint bad";
+    ipfsGatewayDot.classList.remove("ok");
+    ipfsGatewayDot.classList.add("bad");
+    return false;
+  }
+
+  ipfsGatewayStatus.textContent = "Checking gateway…";
+  ipfsGatewayStatus.className = "hint";
+  ipfsGatewayDot.classList.remove("ok", "bad");
+
+  try {
+    await fetch(`${parsed.protocol}//bafkqaaa.ipfs.${parsed.host}:${parsed.port}/`, {
+      mode: "no-cors",
+      cache: "no-store",
+      signal: AbortSignal.timeout(2500),
+    });
+    ipfsGatewayStatus.textContent = `Connected at ${parsed.host}:${parsed.port}`;
+    ipfsGatewayStatus.className = "hint ok";
+    ipfsGatewayDot.classList.remove("bad");
+    ipfsGatewayDot.classList.add("ok");
+    return true;
+  } catch (e) {
+    ipfsGatewayStatus.textContent = `Not reachable: ${e instanceof Error ? e.message : String(e)}`;
+    ipfsGatewayStatus.className = "hint bad";
+    ipfsGatewayDot.classList.remove("ok");
+    ipfsGatewayDot.classList.add("bad");
+    return false;
+  }
+}
+
+ipfsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const gatewayUrl = ipfsGatewayInput.value.trim();
+  if (!gatewayUrl) return;
+
+  const parsed = parseGatewayUrl(gatewayUrl);
+  if (!parsed) {
+    ipfsGatewayStatus.textContent = "Invalid URL format. Use http://host:port or https://host:port";
+    ipfsGatewayStatus.className = "hint bad";
+    return;
+  }
+
+  ipfsGatewayApplyBtn.disabled = true;
+  ipfsGatewayStatus.textContent = "Requesting permission…";
+  ipfsGatewayStatus.className = "hint";
+
+  const origin = `${parsed.protocol}//${parsed.host}:${parsed.port}/*`;
+  const has = await chrome.permissions.contains({ origins: [origin] });
+  if (!has) {
+    const granted = await chrome.permissions.request({ origins: [origin] });
+    if (!granted) {
+      ipfsGatewayStatus.textContent = "Permission denied — can't reach that gateway host.";
+      ipfsGatewayStatus.className = "hint bad";
+      ipfsGatewayApplyBtn.disabled = false;
+      return;
+    }
+  }
+
+  ipfsGatewayStatus.textContent = "Testing connection…";
+  const reachable = await probeIpfsGateway();
+  if (reachable) {
+    await setSettings({
+      ipfsGateway: {
+        protocol: parsed.protocol,
+        host: parsed.host,
+        port: parsed.port,
+      },
+    });
+    ipfsGatewayStatus.textContent = `Saved! Gateway at ${parsed.host}:${parsed.port}`;
+    ipfsGatewayStatus.className = "hint ok";
+  }
+  ipfsGatewayApplyBtn.disabled = false;
+});
+
+// --- Kubo API ---
+function defaultKuboApiConfig() {
+  return {
+    protocol: "http:",
+    host: "127.0.0.1",
+    port: 5001,
+  };
+}
+
+function syncKuboApiUI(config: { protocol: string; host: string; port: number } | undefined) {
+  const effective = config ?? defaultKuboApiConfig();
+  kuboApiInput.value = formatGatewayUrl(effective);
+  kuboApiStatus.textContent = config ? "API configured" : "Using default API";
+  kuboApiStatus.className = "hint";
+  kuboApiDot.classList.remove("ok", "bad", "warn");
+}
+
+async function probeKuboApiStatus(): Promise<boolean> {
+  const apiUrl = kuboApiInput.value.trim() || "http://127.0.0.1:5001";
+  const parsed = parseGatewayUrl(apiUrl);
+  if (!parsed) {
+    kuboApiStatus.textContent = "Invalid API URL format";
+    kuboApiStatus.className = "hint bad";
+    kuboApiDot.classList.remove("ok", "warn");
+    kuboApiDot.classList.add("bad");
+    return false;
+  }
+
+  kuboApiStatus.textContent = "Checking Kubo API…";
+  kuboApiStatus.className = "hint";
+  kuboApiDot.classList.remove("ok", "bad", "warn");
+
+  // Update the in-page cached config so probeKuboApi() hits the right host
+  setKuboApiConfig(parsed);
+  const result = await probeKuboApi();
+  if (result.ok) {
+    kuboApiStatus.textContent = `API reachable at ${parsed.host}:${parsed.port}`;
+    kuboApiStatus.className = "hint ok";
+    kuboApiDot.classList.remove("bad", "warn");
+    kuboApiDot.classList.add("ok");
+    return true;
+  }
+  if (result.kind.kind === "cors") {
+    kuboApiStatus.textContent = `API reachable but CORS blocked (needs setup)`;
+    kuboApiStatus.className = "hint warn";
+    kuboApiDot.classList.remove("ok", "bad");
+    kuboApiDot.classList.add("warn");
+    return true; // reachable, just needs CORS setup
+  }
+  kuboApiStatus.textContent = `Not reachable: ${describeKuboPinError(result.kind)}`;
+  kuboApiStatus.className = "hint bad";
+  kuboApiDot.classList.remove("ok", "warn");
+  kuboApiDot.classList.add("bad");
+  return false;
+}
+
+kuboApiForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const apiUrl = kuboApiInput.value.trim();
+  if (!apiUrl) return;
+
+  const parsed = parseGatewayUrl(apiUrl);
+  if (!parsed) {
+    kuboApiStatus.textContent = "Invalid URL format. Use http://host:port or https://host:port";
+    kuboApiStatus.className = "hint bad";
+    return;
+  }
+
+  kuboApiApplyBtn.disabled = true;
+  kuboApiStatus.textContent = "Requesting permission…";
+  kuboApiStatus.className = "hint";
+
+  const origin = `${parsed.protocol}//${parsed.host}:${parsed.port}/*`;
+  const has = await chrome.permissions.contains({ origins: [origin] });
+  if (!has) {
+    const granted = await chrome.permissions.request({ origins: [origin] });
+    if (!granted) {
+      kuboApiStatus.textContent = "Permission denied — can't reach that API host.";
+      kuboApiStatus.className = "hint bad";
+      kuboApiApplyBtn.disabled = false;
+      return;
+    }
+  }
+
+  kuboApiStatus.textContent = "Testing connection…";
+  const reachable = await probeKuboApiStatus();
+  if (reachable) {
+    await setSettings({
+      kuboApi: {
+        protocol: parsed.protocol,
+        host: parsed.host,
+        port: parsed.port,
+      },
+    });
+    kuboApiStatus.textContent = `Saved! API at ${parsed.host}:${parsed.port}`;
+    kuboApiStatus.className = "hint ok";
+  }
+  kuboApiApplyBtn.disabled = false;
+});
+
 (async () => {
   const s = await getSettings();
   if (!s.onboardingComplete && !s.rpcUrl) {
@@ -712,9 +943,14 @@ function renderWeb3List(entries: Web3CacheEntry[]) {
   syncConsensusUI(s.consensusRpc);
   renderVerifierList(s.consensusVerifiers ?? []);
   syncCheckpointUI(s.checkpoint);
+  syncIpfsGatewayUI(s.ipfsGateway);
+  syncKuboApiUI(s.kuboApi);
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
   syncWeb3Budgets(s);
   loadWeb3List();
   pollHelios();
+  // Probe the IPFS gateway and Kubo API on load to show current status
+  void probeIpfsGateway();
+  void probeKuboApiStatus();
 })();

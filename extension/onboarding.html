@@ -45,9 +45,45 @@
           dapp3 serves <code>.eth</code> sites from a local IPFS node, nothing
           touches a public gateway.
         </p>
-        <div class="statusbox" id="ipfs-statusbox">
-          <span class="dot" id="ipfs-dot"></span>
-          <span id="ipfs-status-text">checking…</span>
+
+        <form id="ipfs-form" class="ipfs-form">
+          <label>
+            <span>IPFS Gateway URL</span>
+            <input
+              type="url"
+              name="gatewayUrl"
+              id="ipfs-gateway-input"
+              placeholder="http://localhost:8080"
+              value="http://localhost:8080"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+            <small>The subdomain gateway where your IPFS node serves content (e.g., http://localhost:8080 or http://127.0.0.1:8080)</small>
+          </label>
+          <label style="margin-top: 12px;">
+            <span>Kubo API URL</span>
+            <input
+              type="url"
+              name="kuboApiUrl"
+              id="kubo-api-input"
+              placeholder="http://127.0.0.1:5001"
+              value="http://127.0.0.1:5001"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+            <small>The Kubo RPC API used for pinning content (e.g., http://127.0.0.1:5001)</small>
+          </label>
+        </form>
+
+        <div class="statusbox" id="gateway-statusbox">
+          <span class="dot" id="gateway-dot"></span>
+          <span id="gateway-status-text">checking…</span>
+        </div>
+        <div class="statusbox" id="kubo-api-statusbox">
+          <span class="dot" id="kubo-api-dot"></span>
+          <span id="kubo-api-status-text">checking…</span>
         </div>
         <p class="hint when-not-ok">
           No node yet? Install
@@ -74,6 +110,30 @@
             </li>
           </ul>
         </details>
+
+        <details class="explainer-details">
+          <summary>About the Chrome permission prompt</summary>
+          <div class="explainer">
+            <p>Chrome will ask for access to:</p>
+            <ul id="ipfs-perm-preview" class="perm-preview"></ul>
+            <p>
+              Chrome says <em>"Read and change your data on [host]"</em> for any
+              host permission — it's a generic template, not what we do.
+            </p>
+            <p>This extension only:</p>
+            <ul>
+              <li>
+                <strong>Reads</strong> IPFS content from your configured gateway
+                to serve <code>.eth</code> sites.
+              </li>
+              <li>
+                <strong>Never</strong> writes data or interacts with page content
+                on that host.
+              </li>
+            </ul>
+          </div>
+        </details>
+
         <footer class="panel-footer">
           <button id="ipfs-recheck" type="button" class="ghost">
             <svg

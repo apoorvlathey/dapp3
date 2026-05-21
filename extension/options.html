@@ -175,6 +175,57 @@
       </section>
 
       <section>
+        <h2>IPFS Gateway</h2>
+        <p class="hint">
+          The local IPFS node that serves <code>.eth</code> content. Must support
+          subdomain gateway mode (e.g., <code>http://&lt;cid&gt;.ipfs.localhost:8080</code>).
+        </p>
+        <form id="ipfs-form" class="consensus-form">
+          <div class="input-row">
+            <input
+              type="url"
+              id="ipfs-gateway-input"
+              placeholder="http://localhost:8080"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+            <button type="submit" id="ipfs-gateway-apply">Save</button>
+          </div>
+          <div class="statusbox" style="margin-top: 8px;">
+            <span class="dot" id="ipfs-gateway-dot"></span>
+            <span id="ipfs-gateway-status">Enter a gateway URL and click Save</span>
+          </div>
+        </form>
+      </section>
+
+      <section>
+        <h2>Kubo API</h2>
+        <p class="hint">
+          The Kubo RPC API used to pin ERC-4804 content. Must allow this
+          extension's origin in
+          <code>API.HTTPHeaders.Access-Control-Allow-Origin</code>.
+        </p>
+        <form id="kubo-api-form" class="consensus-form">
+          <div class="input-row">
+            <input
+              type="url"
+              id="kubo-api-input"
+              placeholder="http://127.0.0.1:5001"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+            <button type="submit" id="kubo-api-apply">Save</button>
+          </div>
+          <div class="statusbox" style="margin-top: 8px;">
+            <span class="dot" id="kubo-api-dot"></span>
+            <span id="kubo-api-status">Enter an API URL and click Save</span>
+          </div>
+        </form>
+      </section>
+
+      <section>
         <h2>Gateway interception</h2>
         <p class="hint">
           Rewrites public ENS gateways to the underlying name/address and

@@ -31,6 +31,20 @@ export type Settings = {
   // ERC-4804 contract. Keeps Helios load light on heavy users by skipping
   // the eth_call when a recent revalidation has already happened. See PRD §5.3.
   web3RevalidateMinIntervalMs?: number;
+  // IPFS gateway configuration (protocol, host, port)
+  // Default: http://localhost:8080
+  ipfsGateway?: {
+    protocol: string; // e.g., "http:" or "https:"
+    host: string;     // e.g., "localhost" or "127.0.0.1"
+    port: number;     // e.g., 8080 or 48080
+  };
+  // Kubo RPC API configuration (protocol, host, port)
+  // Default: http://127.0.0.1:5001
+  kuboApi?: {
+    protocol: string; // e.g., "http:" or "https:"
+    host: string;     // e.g., "127.0.0.1" or "localhost"
+    port: number;     // e.g., 5001 or 15001
+  };
 };
 
 const KEY = "settings";

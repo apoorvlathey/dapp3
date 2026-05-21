@@ -12,7 +12,31 @@
 // On a CORS rejection we surface KuboPinError so the caller can map to the
 // extension's web3-pin-failed error page with a concrete fix message.
 
-const KUBO_API_BASE = "http://127.0.0.1:5001";
+import type { IpfsGatewayConfig } from "./gateway";
+
+const DEFAULT_KUBO_API: IpfsGatewayConfig = {
+  protocol: "http:",
+  host: "127.0.0.1",
+  port: 5001,
+};
+
+// Cached Kubo API config — owned by the service worker (see service-worker.ts)
+let cachedKuboApiConfig: IpfsGatewayConfig = { ...DEFAULT_KUBO_API };
+
+export function getKuboApiConfig(): IpfsGatewayConfig {
+  return cachedKuboApiConfig;
+}
+
+export function setKuboApiConfig(config: IpfsGatewayConfig): void {
+  cachedKuboApiConfig = config;
+}
+
+export function getKuboApiBase(): string {
+  const c = cachedKuboApiConfig;
+  const defaultPort = c.protocol === "https:" ? 443 : 80;
+  const port = c.port === defaultPort ? "" : `:${c.port}`;
+  return `${c.protocol}//${c.host}${port}`;
+}
 
 export type KuboPinErrorKind =
   | { kind: "unreachable"; cause: string }
@@ -27,9 +51,10 @@ export class KuboPinError extends Error {
 }
 
 export function describeKuboPinError(d: KuboPinErrorKind): string {
+  const base = getKuboApiBase();
   switch (d.kind) {
     case "unreachable":
-      return `Kubo API at ${KUBO_API_BASE} is unreachable: ${d.cause}. Is IPFS Desktop running?`;
+      return `Kubo API at ${base} is unreachable: ${d.cause}. Is IPFS Desktop running?`;
     case "cors":
       return `Kubo rejected the request (CORS / Origin not allowed): ${d.cause}. Allow the extension origin in Kubo's API.HTTPHeaders.Access-Control-Allow-Origin.`;
     case "http":
@@ -56,7 +81,7 @@ export type KuboProbeResult =
 export async function probeKuboApi(): Promise<KuboProbeResult> {
   let resp: Response;
   try {
-    resp = await fetch(`${KUBO_API_BASE}/api/v0/version`, { method: "POST" });
+    resp = await fetch(`${getKuboApiBase()}/api/v0/version`, { method: "POST" });
   } catch (e) {
     const cause = e instanceof Error ? e.message : String(e);
     if (/cors|origin/i.test(cause)) {
@@ -114,7 +139,7 @@ export async function addToKubo(
   // `body` is a regular Uint8Array we just created from TextEncoder.
   form.append("file", new Blob([body as BlobPart]), "body");
 
-  const url = `${KUBO_API_BASE}/api/v0/add?${params.toString()}`;
+  const url = `${getKuboApiBase()}/api/v0/add?${params.toString()}`;
 
   let resp: Response;
   try {
@@ -170,7 +195,7 @@ export async function addToKubo(
 // Kubo manually, GC already ran, etc.) and the eviction should still drop
 // the matching cache entry from chrome.storage.
 export async function unpinFromKubo(cid: string): Promise<void> {
-  const url = `${KUBO_API_BASE}/api/v0/pin/rm?arg=${encodeURIComponent(cid)}`;
+  const url = `${getKuboApiBase()}/api/v0/pin/rm?arg=${encodeURIComponent(cid)}`;
   let resp: Response;
   try {
     resp = await fetch(url, { method: "POST" });
@@ -204,7 +229,7 @@ export async function removeMfsPath(path: string): Promise<void> {
     recursive: "true",
     force: "true",
   });
-  const url = `${KUBO_API_BASE}/api/v0/files/rm?${params.toString()}`;
+  const url = `${getKuboApiBase()}/api/v0/files/rm?${params.toString()}`;
   let resp: Response;
   try {
     resp = await fetch(url, { method: "POST" });

@@ -225,6 +225,10 @@ code {
   color: var(--text-body);
 }
 
+.statusbox + .statusbox {
+  margin-top: -12px;
+}
+
 .dot {
   width: 9px;
   height: 9px;
