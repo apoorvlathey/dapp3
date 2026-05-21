@@ -601,23 +601,17 @@ async function startHelios() {
   try {
     if (rpcUrl) await requestHostPermission(rpcUrl);
     await requestHostPermission(consensus);
-  } catch (e) {
-    console.error("[dapp3] onboarding: host permission request failed", e);
+  } catch {
+    /* permission errors are surfaced in the Helios status */
   }
-  console.log("[dapp3] onboarding: sending boot-helios");
-  chrome.runtime.sendMessage({ type: "boot-helios" }).then(
-    (resp) => console.log("[dapp3] onboarding: boot-helios response", resp),
-    (e) => console.error("[dapp3] onboarding: boot-helios failed", e),
-  );
+  chrome.runtime.sendMessage({ type: "boot-helios" }).catch(() => undefined);
   while (currentStep === 3) {
     try {
       const resp = await chrome.runtime.sendMessage({
         type: "get-helios-status",
       });
-      console.log("[dapp3] onboarding: get-helios-status poll", resp?.status);
       renderHelios(resp?.status ?? null);
-    } catch (e) {
-      console.error("[dapp3] onboarding: get-helios-status poll error", e);
+    } catch {
       renderHelios(null);
     }
     await new Promise((r) => setTimeout(r, 1000));

@@ -20,7 +20,7 @@ import { humanizeRpcError } from "@/lib/rpc-error";
 // Tried lodestar-mainnet.chainsafe.io (rate-limits /blocks/ with 429s) and
 // www.lightclientdata.org (returns 503 on the REST API entirely) — both
 // break the advance() loop or bootstrap.
-const DEFAULT_CONSENSUS_RPC = "https://ethereum-beacon-api.publicnode.com";
+const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
 
 let provider: HeliosProvider | null = null;
 let bootPromise: Promise<void> | null = null;
@@ -286,8 +286,8 @@ async function shutdown() {
   if (provider) {
     try {
       await provider.shutdown();
-    } catch (e) {
-      console.warn("[dapp3] shutdown err", e);
+    } catch {
+      /* best-effort */
     }
     provider = null;
   }
@@ -298,32 +298,25 @@ async function shutdown() {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== "offscreen") return false;
 
-  console.log("[dapp3] offscreen: received message", msg.type);
-
   (async () => {
     try {
       if (msg.type === "helios-bootstrap") {
-        console.log("[dapp3] offscreen: booting helios with config", msg.config);
         await boot((msg as HeliosBootstrapMsg).config);
-        console.log("[dapp3] offscreen: boot complete, status =", status);
         sendResponse({ ok: true, status });
       } else if (msg.type === "helios-status") {
         void (msg as HeliosStatusMsg);
-        console.log("[dapp3] offscreen: status query, status =", status);
         sendResponse({ ok: true, status });
       } else if (msg.type === "helios-request") {
         const resp = await handleRequest(msg as HeliosRequestMsg);
         sendResponse(resp);
       } else if (msg.type === "helios-shutdown") {
         void (msg as HeliosShutdownMsg);
-        console.log("[dapp3] offscreen: shutting down");
         await shutdown();
         sendResponse({ ok: true, status });
       } else {
         sendResponse({ ok: false, error: `unknown type ${msg.type}` });
       }
     } catch (e) {
-      console.error("[dapp3] offscreen: message handler error", e);
       sendResponse({
         ok: false,
         error: e instanceof Error ? e.message : String(e),
@@ -333,5 +326,3 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   return true;
 });
-
-console.log("[dapp3] offscreen ready");

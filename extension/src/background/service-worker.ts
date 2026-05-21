@@ -732,37 +732,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get-helios-status") {
-    console.log("[dapp3] SW: handling get-helios-status");
     getHeliosStatus().then(
-      (status) => {
-        console.log("[dapp3] SW: get-helios-status response", status);
-        sendResponse({ ok: true, status });
-      },
-      (e) => {
-        console.error("[dapp3] SW: get-helios-status error", e);
-        sendResponse({ ok: false, error: e?.message ?? String(e) });
-      },
+      (status) => sendResponse({ ok: true, status }),
+      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
     );
     return true;
   }
 
   if (msg?.type === "shutdown-helios") {
-    console.log("[dapp3] SW: handling shutdown-helios");
     shutdownHelios().then(() => sendResponse({ ok: true }));
     return true;
   }
 
   if (msg?.type === "boot-helios") {
-    console.log("[dapp3] SW: handling boot-helios");
     getOrStartHelios().then(
-      (status) => {
-        console.log("[dapp3] SW: boot-helios result", status);
-        sendResponse({ ok: true, status });
-      },
-      (e) => {
-        console.error("[dapp3] SW: boot-helios error", e);
-        sendResponse({ ok: false, error: e?.message ?? String(e) });
-      },
+      (status) => sendResponse({ ok: true, status }),
+      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
     );
     return true;
   }

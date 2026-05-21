@@ -12,14 +12,9 @@ const OFFSCREEN_PATH = "offscreen.html";
 let offscreenReady: Promise<void> | null = null;
 
 async function ensureOffscreen(): Promise<void> {
-  if (offscreenReady) {
-    console.log("[dapp3] ensureOffscreen: reusing cached promise");
-    return offscreenReady;
-  }
-  console.log("[dapp3] ensureOffscreen: creating offscreen document");
+  if (offscreenReady) return offscreenReady;
   offscreenReady = (async () => {
     const hasDoc: boolean = await chrome.offscreen.hasDocument();
-    console.log("[dapp3] ensureOffscreen: hasDocument =", hasDoc);
     if (hasDoc) return;
     await chrome.offscreen.createDocument({
       url: chrome.runtime.getURL(OFFSCREEN_PATH),
@@ -30,13 +25,10 @@ async function ensureOffscreen(): Promise<void> {
       justification:
         "Hosts the Helios light client (WASM) which cannot run in a service worker.",
     });
-    console.log("[dapp3] ensureOffscreen: createDocument resolved");
   })();
   try {
     await offscreenReady;
-    console.log("[dapp3] ensureOffscreen: offscreen ready");
   } catch (e) {
-    console.error("[dapp3] ensureOffscreen: failed", e);
     offscreenReady = null;
     throw e;
   }
@@ -50,23 +42,18 @@ async function sendOffscreen<T>(
     | { target: "offscreen"; type: "helios-shutdown" },
 ): Promise<T> {
   await ensureOffscreen();
-  console.log("[dapp3] sendOffscreen: sending", msg.type);
   return new Promise<T>((resolve, reject) => {
     chrome.runtime.sendMessage(msg, (resp) => {
       const err = chrome.runtime.lastError;
-      if (err) {
-        console.error("[dapp3] sendOffscreen: lastError for", msg.type, err.message);
-        return reject(new Error(err.message));
-      }
-      console.log("[dapp3] sendOffscreen: response for", msg.type, resp);
+      if (err) return reject(new Error(err.message));
       resolve(resp as T);
     });
   });
 }
 
-const DEFAULT_CONSENSUS_RPC = "https://ethereum-beacon-api.publicnode.com";
+const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
 
-async function checkHostPermission(url: string): Promise<void> {
+async function ensureHostPermission(url: string): Promise<void> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -75,10 +62,10 @@ async function checkHostPermission(url: string): Promise<void> {
   }
   const origin = `${parsed.origin}/*`;
   const has = await chrome.permissions.contains({ origins: [origin] });
-  if (!has) {
-    throw new Error(
-      `Host permission for ${parsed.origin} not granted. Open the extension options to grant it.`,
-    );
+  if (has) return;
+  const granted = await chrome.permissions.request({ origins: [origin] });
+  if (!granted) {
+    throw new Error(`Host permission for ${parsed.origin} was not granted.`);
   }
 }
 
@@ -99,16 +86,14 @@ export async function requestHostPermission(url: string): Promise<void> {
 }
 
 export async function ensureHeliosBooted(): Promise<HeliosStatus> {
-  console.log("[dapp3] ensureHeliosBooted: starting");
   const { rpcUrl, consensusRpc, consensusVerifiers, checkpoint } =
     await getSettings();
   if (!rpcUrl) throw new Error("No Ethereum RPC configured.");
   const executionRpc = rpcUrl;
   const consensus = consensusRpc || DEFAULT_CONSENSUS_RPC;
-  console.log("[dapp3] ensureHeliosBooted: executionRpc =", executionRpc, "consensus =", consensus);
 
-  await checkHostPermission(executionRpc);
-  await checkHostPermission(consensus);
+  await ensureHostPermission(executionRpc);
+  await ensureHostPermission(consensus);
 
   // Verifiers must already have host permission — they were granted at
   // add-time in the options UI. Filter out anything we don't actually have
