@@ -24,21 +24,45 @@ document.title = ensName
   ? `${ensName} · resolution failed`
   : "dapp3.eth · resolution failed";
 
-// Build the public-gateway fallback URL mechanically. ENS names go to eth.limo;
-// raw ERC-4804 contract addresses go to w3eth.io.
-function buildHostedFallback(): { url: string; gateway: "eth-limo" | "w3eth" } | null {
+type HostedFallback = {
+  url: string;
+  gateway: "eth-limo" | "gwei-domains" | "w3eth";
+  label: string;
+  description?: string;
+};
+
+// Build the public-gateway fallback URL mechanically. ENS names go to eth.limo,
+// Gwei names go to gwei.domains, and raw ERC-4804 contract addresses go to
+// w3eth.io.
+function buildHostedFallback(): HostedFallback | null {
   const path = navPath.startsWith("/") ? navPath : `/${navPath}`;
+  const tail = `${path}${navSearch}${navHash}`;
   if (ADDRESS_RE.test(ensName)) {
     return {
-      url: `https://${ensName.toLowerCase()}.w3eth.io${path}${navSearch}${navHash}`,
+      url: `https://${ensName.toLowerCase()}.w3eth.io${tail}`,
       gateway: "w3eth",
+      label: "Open on w3eth.io →",
+      description:
+        "Open this contract on the public w3eth.io gateway instead. The content is fetched without local trust-minimized verification.",
     };
   }
-  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) return null;
-  return {
-    url: `https://${ensName}.limo${path}${navSearch}${navHash}`,
-    gateway: "eth-limo",
-  };
+  if (/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) {
+    return {
+      url: `https://${ensName}.limo${tail}`,
+      gateway: "eth-limo",
+      label: "Open on eth.limo →",
+    };
+  }
+  if (/^(?:[a-z0-9-]+\.)+gwei$/.test(ensName)) {
+    return {
+      url: `https://${ensName}.domains${tail}`,
+      gateway: "gwei-domains",
+      label: "Open on gwei.domains →",
+      description:
+        "Open this name on the public gwei.domains gateway instead. The content is fetched without local trust-minimized verification.",
+    };
+  }
+  return null;
 }
 
 const fallbackEl = document.getElementById("fallback") as HTMLDivElement;
@@ -50,10 +74,9 @@ const fallback = buildHostedFallback();
 if (fallback) {
   const fallbackUrl = fallback.url;
   fallbackLink.href = fallbackUrl;
-  if (fallback.gateway === "w3eth") {
-    fallbackDesc.textContent =
-      "Open this contract on the public w3eth.io gateway instead. The content is fetched without local trust-minimized verification.";
-    fallbackLink.textContent = "Open on w3eth.io →";
+  fallbackLink.textContent = fallback.label;
+  if (fallback.description) {
+    fallbackDesc.textContent = fallback.description;
   }
   fallbackEl.hidden = false;
   // Route through the SW so it installs the per-tab ALLOW override *before*
@@ -62,9 +85,15 @@ if (fallback) {
   // exactly what the user is trying to bail out of.
   fallbackLink.addEventListener("click", (e) => {
     e.preventDefault();
+    const type =
+      fallback.gateway === "w3eth"
+        ? "open-on-w3eth"
+        : fallback.gateway === "gwei-domains"
+          ? "open-on-gwei-domains"
+          : "open-on-eth-limo";
     chrome.runtime
       .sendMessage({
-        type: fallback.gateway === "w3eth" ? "open-on-w3eth" : "open-on-eth-limo",
+        type,
         url: fallbackUrl,
       })
       .catch(() => {
@@ -73,7 +102,7 @@ if (fallback) {
   });
 }
 
-// Mirror the banner's parser: any `.eth` name (incl. subdomains), preserves path/query/hash.
+// Mirror the banner's parser: any `.eth` / `.gwei` name (incl. subdomains), preserves path/query/hash.
 function parseEthInput(raw: string): string | null {
   const trimmed = raw.trim().replace(/^https?:\/\//i, "");
   if (!trimmed) return null;
@@ -81,7 +110,7 @@ function parseEthInput(raw: string): string | null {
   if (!m || !m[1]) return null;
   const host = m[1].toLowerCase();
   const rest = m[2] || "/";
-  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(host)) return null;
+  if (!/^(?:[a-z0-9-]+\.)+(?:eth|gwei)$/.test(host)) return null;
   const suffix =
     rest.startsWith("/") || rest.startsWith("?") || rest.startsWith("#")
       ? rest
@@ -90,7 +119,7 @@ function parseEthInput(raw: string): string | null {
 }
 
 const field = setupAddressField(inputEl, {
-  placeholder: "name.eth",
+  placeholder: "name.eth or name.gwei",
   onSubmit: (text) => {
     const url = parseEthInput(text);
     if (!url) {

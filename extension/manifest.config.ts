@@ -52,6 +52,11 @@ export default defineManifest({
     // "site can't be reached" page. DNR redirects need host access to the
     // target URL; without this, the rule silently no-ops.
     "*://*.eth/*",
+    // Same reason for `*.gwei` names (Gwei Name Service). The NameNFT contract
+    // is its own resolver, so resolution is a single Helios-verified eth_call;
+    // this host permission lets the DNR rule intercept `*.gwei` main_frame
+    // requests before Chrome's DNS probe fails.
+    "*://*.gwei/*",
     // Same reason for the optional `*.eth.limo` / `*.eth.link` interception
     // (toggle in settings). The DNR rule rewrites `<x>.eth.limo` /
     // `<x>.eth.link` → `<x>.eth`; without host access to the request URL the

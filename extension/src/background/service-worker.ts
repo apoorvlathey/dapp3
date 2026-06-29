@@ -2,6 +2,7 @@ import "@/lib/sw-dom-shim";
 import {
   resolveContractAddress,
   resolveEns,
+  resolveGwei,
   getOrStartHelios,
 } from "@/lib/resolver";
 import {
@@ -41,6 +42,7 @@ import {
 } from "@/lib/kubo";
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
+const GWEI_HOST_RE = /^(?:[a-z0-9-]+\.)+gwei\.?$/i;
 const W3ETH_HOST_RE = /^0x[a-f0-9]{40}\.w3eth\.io\.?$/i;
 const W3LINK_HOST_RE = /^0x[a-f0-9]{40}\.1\.w3link\.io\.?$/i;
 const ADDRESS_RE = /^0x[a-f0-9]{40}$/i;
@@ -69,6 +71,14 @@ const W3ETH_BYPASS_RULE_ID = 1005;
 const W3LINK_REDIRECT_RULE_ID = 1006;
 const IPFS_GATEWAY_HTTP_ALLOW_RULE_ID = 1007;
 const IPNS_GATEWAY_HTTP_ALLOW_RULE_ID = 1008;
+// Rewrites `https?://<label>.gwei.domains[/path]` -> `http://<label>.gwei`, which
+// the .gwei redirect rule (1001) then routes through the interstitial. Toggle:
+// settings.interceptGweiDomains.
+const GWEI_DOMAINS_REDIRECT_RULE_ID = 1009;
+// Session-scoped ALLOW rule punching through the gwei.domains redirect for
+// specific tabs, so the banner/error "Open on gwei.domains" action reaches the
+// public gateway even when interception is on. Mirrors ETH_LIMO_BYPASS_RULE_ID.
+const GWEI_DOMAINS_BYPASS_RULE_ID = 1010;
 
 const GATEWAY_HTTP_ALLOW_RESOURCE_TYPES = [
   chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
@@ -110,9 +120,9 @@ async function installEthRedirectRule() {
   // original URL verbatim via `location.hash.slice(1)` — no encoding needed.
   //
   // NB: DNR redirects require host permission for the *target URL of the
-  // request*. That's why manifest.config.ts lists `*://*.eth/*` under
-  // host_permissions. Without it this rule silently no-ops and Chrome's DNS
-  // probe wins the race.
+  // request*. That's why manifest.config.ts lists `*://*.eth/*` and
+  // `*://*.gwei/*` under host_permissions. Without it this rule silently
+  // no-ops and Chrome's DNS probe wins the race.
   const interstitial = chrome.runtime.getURL("interstitial.html");
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: [ETH_REDIRECT_RULE_ID],
@@ -125,8 +135,9 @@ async function installEthRedirectRule() {
           redirect: { regexSubstitution: `${interstitial}#\\0` },
         },
         condition: {
-          // Any *.eth host (first-level or subdomain), any scheme/port, any path/query/fragment.
-          regexFilter: "^https?://(?:[a-z0-9-]+\\.)+eth\\.?(?::\\d+)?(?:/.*)?$",
+          // Any *.eth or *.gwei host (first-level or subdomain), any scheme/port, any path/query/fragment.
+          regexFilter:
+            "^https?://(?:[a-z0-9-]+\\.)+(?:eth|gwei)\\.?(?::\\d+)?(?:/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -279,6 +290,42 @@ async function syncEthLimoRedirectRule(enabled: boolean) {
   });
 }
 
+async function syncGweiDomainsRedirectRule(enabled: boolean) {
+  // Rewrites `https?://<label>.gwei.domains[:port][/path]` →
+  // `http://<label>.gwei[/path]`. The .gwei redirect rule then catches the
+  // result and routes through the interstitial → resolver → gateway flow, so
+  // the user gets local Helios-verified content instead of the public
+  // gwei.domains gateway. Mirrors syncEthLimoRedirectRule.
+  if (!enabled) {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [GWEI_DOMAINS_REDIRECT_RULE_ID],
+    });
+    return;
+  }
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: [GWEI_DOMAINS_REDIRECT_RULE_ID],
+    addRules: [
+      {
+        id: GWEI_DOMAINS_REDIRECT_RULE_ID,
+        // Lower than the .gwei redirect (priority 2) so the rewritten request
+        // flows through it on the next pass.
+        priority: 1,
+        action: {
+          type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+          redirect: { regexSubstitution: "http://\\1.gwei\\2" },
+        },
+        condition: {
+          regexFilter:
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.gwei\\.domains\\.?(?::\\d+)?(/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+        },
+      },
+    ],
+  });
+}
+
 // When onboarding isn't complete we unset the popup (`setPopup('')`) so that
 // clicking the toolbar icon fires `action.onClicked` instead of opening the
 // popup — the listener below then opens (or focuses) the onboarding tab. The
@@ -360,6 +407,54 @@ async function removeEthLimoBypassForTab(tabId: number) {
   const current = await getEthLimoBypassTabs();
   if (!current.includes(tabId)) return;
   await setEthLimoBypassTabs(current.filter((id) => id !== tabId));
+}
+
+async function setGweiDomainsBypassTabs(tabIds: number[]) {
+  if (tabIds.length === 0) {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [GWEI_DOMAINS_BYPASS_RULE_ID],
+    });
+    return;
+  }
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [GWEI_DOMAINS_BYPASS_RULE_ID],
+    addRules: [
+      {
+        id: GWEI_DOMAINS_BYPASS_RULE_ID,
+        // Higher than both the .gwei redirect (2) and the gwei.domains redirect
+        // (1) so a gwei.domains main_frame request on a bypassed tab wins the
+        // ALLOW and reaches the real public gateway.
+        priority: 3,
+        action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
+        condition: {
+          regexFilter:
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.gwei\\.domains\\.?(?::\\d+)?(/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+          tabIds,
+        },
+      },
+    ],
+  });
+}
+
+async function getGweiDomainsBypassTabs(): Promise<number[]> {
+  const rules = await chrome.declarativeNetRequest.getSessionRules();
+  const rule = rules.find((r) => r.id === GWEI_DOMAINS_BYPASS_RULE_ID);
+  return (rule?.condition.tabIds as number[] | undefined) ?? [];
+}
+
+async function addGweiDomainsBypassForTab(tabId: number) {
+  const current = await getGweiDomainsBypassTabs();
+  if (current.includes(tabId)) return;
+  await setGweiDomainsBypassTabs([...current, tabId]);
+}
+
+async function removeGweiDomainsBypassForTab(tabId: number) {
+  const current = await getGweiDomainsBypassTabs();
+  if (!current.includes(tabId)) return;
+  await setGweiDomainsBypassTabs(current.filter((id) => id !== tabId));
 }
 
 // Bypass set for the JS-layer w3eth.io redirect (the one in onBeforeNavigate
@@ -599,11 +694,13 @@ async function resolveAndRedirect(
   hash: string,
   opts: { bypassHelios?: boolean } = {},
 ): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
-  // The "ensName" parameter is a generic resolution target — either a `.eth`
-  // name or a 0x contract address (from ERC-4804 gateway interception or homepage).
+  // The "ensName" parameter is a generic resolution target: a `.eth` name, a
+  // `.gwei` name, or a 0x contract address from ERC-4804 gateway/homepage input.
   const result = ADDRESS_RE.test(ensName)
     ? await resolveContractAddress(ensName, opts)
-    : await resolveEns(ensName, opts);
+    : GWEI_HOST_RE.test(ensName)
+      ? await resolveGwei(ensName, opts)
+      : await resolveEns(ensName, opts);
   if (!result.ok) {
     // Kubo CORS rejection is a one-time setup issue, not a per-site failure.
     // Don't navigate the tab — return the code so the interstitial can
@@ -694,7 +791,9 @@ async function refreshFromCache(
   try {
     result = ADDRESS_RE.test(ensName)
       ? await resolveContractAddress(ensName)
-      : await resolveEns(ensName);
+      : GWEI_HOST_RE.test(ensName)
+        ? await resolveGwei(ensName)
+        : await resolveEns(ensName);
   } catch (e) {
     console.warn("[dapp3] background refresh failed", e);
     return;
@@ -776,12 +875,17 @@ getSettings().then((s) => {
     s.interceptEthLimo,
     "w3eth=",
     s.interceptW3Eth,
+    "gweiDomains=",
+    s.interceptGweiDomains,
   );
   syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
     console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
   );
   syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
     console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
+  );
+  syncGweiDomainsRedirectRule(s.interceptGweiDomains).catch((e) =>
+    console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
   );
   syncWeb3GatewayRedirectRules(s.interceptW3Eth).then(
     () =>
@@ -811,9 +915,10 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     return;
   }
   const isEth = ETH_HOST_RE.test(url.hostname);
+  const isGwei = GWEI_HOST_RE.test(url.hostname);
   const isW3Eth = W3ETH_HOST_RE.test(url.hostname);
   const isW3Link = W3LINK_HOST_RE.test(url.hostname);
-  if (!isEth && !isW3Eth && !isW3Link) return;
+  if (!isEth && !isGwei && !isW3Eth && !isW3Link) return;
   getOrStartHelios().catch(() => undefined);
   if (
     (isW3Eth || isW3Link) &&
@@ -834,6 +939,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   await chrome.storage.session.remove(`tab:${tabId}`);
   await removeEthLimoBypassForTab(tabId).catch(() => undefined);
   await removeW3EthBypassForTab(tabId).catch(() => undefined);
+  await removeGweiDomainsBypassForTab(tabId).catch(() => undefined);
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -1061,6 +1167,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === "open-on-gwei-domains" && typeof msg.url === "string") {
+    const tabId = sender.tab?.id;
+    const url = msg.url as string;
+    if (tabId == null) {
+      sendResponse({ ok: false, error: "no tabId" });
+      return false;
+    }
+    // Defense-in-depth, mirroring open-on-eth-limo: validate the URL shape at
+    // the SW boundary so a future caller bug can't be parlayed into arbitrary
+    // tabs.update navigation.
+    if (
+      !/^https:\/\/(?:[a-z0-9-]+\.)+gwei\.domains\.?(?::\d+)?(?:\/.*)?$/.test(url)
+    ) {
+      sendResponse({ ok: false, error: "invalid url" });
+      return false;
+    }
+    (async () => {
+      try {
+        // Install the per-tab ALLOW override *before* navigating so the DNR
+        // engine sees it in place by the time the main_frame request fires.
+        await addGweiDomainsBypassForTab(tabId);
+        await chrome.tabs.update(tabId, { url });
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    })();
+    return true;
+  }
+
   if (msg?.type === "open-on-w3eth" && typeof msg.url === "string") {
     const tabId = sender.tab?.id;
     const url = msg.url as string;
@@ -1180,6 +1319,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
       console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
     );
+    syncGweiDomainsRedirectRule(s.interceptGweiDomains).catch((e) =>
+      console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
+    );
     syncActionPopup(!!s.onboardingComplete);
   });
   getOrStartHelios().catch(() => {
@@ -1201,12 +1343,14 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 let activeRpc: string | undefined;
 let activeInterceptEthLimo: boolean | undefined;
 let activeInterceptW3Eth: boolean | undefined;
+let activeInterceptGweiDomains: boolean | undefined;
 let activeOnboardingComplete: boolean | undefined;
 let activeIpfsGatewayHost: string | undefined;
 getSettings().then((s) => {
   activeRpc = s.rpcUrl;
   activeInterceptEthLimo = s.interceptEthLimo;
   activeInterceptW3Eth = s.interceptW3Eth;
+  activeInterceptGweiDomains = s.interceptGweiDomains;
   activeOnboardingComplete = !!s.onboardingComplete;
   activeIpfsGatewayHost = getIpfsGatewayConfig(s).host;
 });
@@ -1237,6 +1381,12 @@ onSettingsChanged((s) => {
       console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
     );
   }
+  if (s.interceptGweiDomains !== activeInterceptGweiDomains) {
+    activeInterceptGweiDomains = s.interceptGweiDomains;
+    syncGweiDomainsRedirectRule(s.interceptGweiDomains).catch((e) =>
+      console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
+    );
+  }
   const onboarded = !!s.onboardingComplete;
   if (onboarded !== activeOnboardingComplete) {
     activeOnboardingComplete = onboarded;
@@ -1258,6 +1408,9 @@ chrome.runtime.onStartup.addListener(() => {
     );
     syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
       console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
+    );
+    syncGweiDomainsRedirectRule(s.interceptGweiDomains).catch((e) =>
+      console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
     );
     syncActionPopup(!!s.onboardingComplete);
   });

@@ -201,7 +201,7 @@ async function probeKuboApiAndRender() {
     <summary class="api-warning-title">Optional: enable <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a> dapps and IPFS auto-pinning</summary>
     <div class="api-warning-content">
       <p class="api-warning-body">
-        Run once, restart Kubo. Standard <code>.eth</code>/IPFS sites already work without this; ERC-4804 dapps and optional IPFS auto-pinning need it.
+        Run once, restart Kubo. Standard <code>.eth</code>/<code>.gwei</code>/IPFS sites already work without this; ERC-4804 dapps and optional IPFS auto-pinning need it.
       </p>
       <div class="cmd-block">
         <pre data-cmd="cmd"></pre>
@@ -509,6 +509,7 @@ function renderHelios(status: HeliosStatus | null) {
           onboardingComplete: true,
           interceptEthLimo: lastIpfsOk,
           interceptW3Eth: lastIpfsOk,
+          interceptGweiDomains: lastIpfsOk,
         });
       }
       break;
@@ -556,6 +557,7 @@ finishBtn.addEventListener("click", async () => {
       onboardingComplete: true,
       interceptEthLimo: lastIpfsOk,
       interceptW3Eth: lastIpfsOk,
+      interceptGweiDomains: lastIpfsOk,
     });
   }
   const url = chrome.runtime.getURL("home.html");

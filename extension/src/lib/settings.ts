@@ -29,6 +29,12 @@ export type Settings = {
   // can point routing at another subdomain-capable gateway host.
   ipfsGatewayHost: string;
   ipfsGatewayPort: number;
+  // Intercept `*.gwei.domains` navigations (the public Gwei Name Service
+  // gateway) and route them through local resolution (Helios + Kubo) instead.
+  // The DNR rule rewrites `<label>.gwei.domains` → `<label>.gwei`, which the
+  // .gwei redirect rule then catches. Same default-true / Kubo-gated story as
+  // interceptEthLimo.
+  interceptGweiDomains: boolean;
   // ERC-4804 cache budgets. See PRD_ERC4804.md §5.4 / §7 / W4. Both bound
   // total Kubo storage used by web3:// dapps; LRU eviction kicks in when
   // either is exceeded. Defaults are exported from web3url-cache.ts.
@@ -52,6 +58,7 @@ const DEFAULT: Settings = {
   interceptW3Eth: true,
   ipfsGatewayHost: "localhost",
   ipfsGatewayPort: 8080,
+  interceptGweiDomains: true,
   autoPinIpfsContent: false,
 };
 

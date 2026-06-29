@@ -1,8 +1,9 @@
-// Homepage launcher. Accepts either a `.eth` name or a 0x contract address
-// (with an optional path), and navigates to the corresponding URL. Both forms
+// Homepage launcher. Accepts a `.eth` / `.gwei` name or a 0x contract address
+// (with an optional path), and navigates to the corresponding URL. The forms
 // are caught by the SW's DNR rules:
-//   - `<name>.eth/<path>` → http://<name>.eth/<path> (interceptEthLimo unrelated)
-//   - `0x<addr>/<path>`   → https://<addr>.w3eth.io/<path> (interceptW3Eth)
+//   - `<name>.eth/<path>`  → http://<name>.eth/<path>
+//   - `<name>.gwei/<path>` → http://<name>.gwei/<path>
+//   - `0x<addr>/<path>`    → https://<addr>.w3eth.io/<path> (interceptW3Eth)
 //
 // Going through the public `https://...w3eth.io` URL keeps us on the same
 // resolve path as a typed/clicked ERC-4804 gateway link: the DNR rule rewrites
@@ -47,7 +48,12 @@ function parse(rawInput: string): Parsed | null {
   if (limo && limo[1]) {
     return { kind: "ens", host: limo[1], rest: suffix };
   }
-  if (/^(?:[a-z0-9-]+\.)+eth$/.test(head)) {
+  // Pasted `<name>.gwei.domains` — strip the public gwei gateway suffix.
+  const gweiGw = head.match(/^((?:[a-z0-9-]+\.)+gwei)\.domains$/);
+  if (gweiGw && gweiGw[1]) {
+    return { kind: "ens", host: gweiGw[1], rest: suffix };
+  }
+  if (/^(?:[a-z0-9-]+\.)+(?:eth|gwei)$/.test(head)) {
     return { kind: "ens", host: head, rest: suffix };
   }
   return null;
@@ -84,7 +90,7 @@ form.addEventListener("submit", (e) => {
   const parsed = parse(input.value);
   if (!parsed) {
     flashError(
-      "Couldn't parse that. Try `name.eth` or a 0x… contract address.",
+      "Couldn't parse that. Try `name.eth`, `name.gwei`, or a 0x… contract address.",
     );
     input.focus();
     input.select();

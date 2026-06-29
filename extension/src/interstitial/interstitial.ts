@@ -130,8 +130,13 @@ function ethLimoFallbackUrl(): string | null {
     if (!/^0x[a-f0-9]{40}$/.test(ensName)) return null;
     return `https://${ensName}.w3eth.io${p}${search}${hash}`;
   }
-  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) return null;
-  return `https://${ensName}.limo${p}${search}${hash}`;
+  if (/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) {
+    return `https://${ensName}.limo${p}${search}${hash}`;
+  }
+  if (/^(?:[a-z0-9-]+\.)+gwei$/.test(ensName)) {
+    return `https://${ensName}.domains${p}${search}${hash}`;
+  }
+  return null;
 }
 
 function showError(detail: string) {
@@ -143,7 +148,9 @@ function showError(detail: string) {
     ethlimoFallbackEl.href = fb;
     ethlimoFallbackEl.textContent = isAddressMode
       ? "Open on w3eth.io →"
-      : "Open on eth.limo gateway →";
+      : /^(?:[a-z0-9-]+\.)+gwei$/.test(ensName)
+        ? "Open on gwei.domains gateway →"
+        : "Open on eth.limo gateway →";
     ethlimoFallbackEl.hidden = false;
   }
 }
@@ -399,7 +406,7 @@ async function triggerResolve(bypassHelios = false) {
     ? "Resolving via RPC (skipping Helios)…"
     : isAddressMode
       ? "Fetching onchain HTML…"
-      : "Fetching ENS contenthash…";
+      : "Fetching contenthash…";
   setBar("loading");
   hideSetupCard();
   clearSetupStatus();

@@ -46,14 +46,14 @@ function pickDot(ctx: TabContext, status: HeliosStatus | null): {
       dot: "caution",
       label: "RPC-trusted",
       title:
-        "This page was resolved by trusting your RPC directly (Helios bypassed). The ENS→content mapping was not verified against Ethereum consensus.",
+        "This page was resolved by trusting your RPC directly (Helios bypassed). The name→content mapping was not verified against Ethereum consensus.",
     };
   }
   if (!status) {
     return {
       dot: "ok",
       label: "Helios-verified",
-      title: "ENS resolution was verified by Helios against Ethereum consensus.",
+      title: "Name resolution was verified by Helios against Ethereum consensus.",
     };
   }
   switch (status.state) {
@@ -62,7 +62,7 @@ function pickDot(ctx: TabContext, status: HeliosStatus | null): {
         dot: "ok",
         label: "Helios-verified",
         title:
-          "ENS resolution was verified by Helios against Ethereum consensus.",
+          "Name resolution was verified by Helios against Ethereum consensus.",
       };
     case "syncing":
     case "booting":
@@ -124,9 +124,10 @@ type Refs = {
   updateDismissBtn: HTMLButtonElement;
 };
 
-// Parse an address-bar-style input into a navigable `http://<name>.eth/...` URL.
-// Returns null when the input isn't a `.eth` target (matches the scope enforced
-// by the SW's ETH_HOST_RE + the DNR rule's regexFilter). Accepts subdomains.
+// Parse an address-bar-style input into a navigable `http://<name>.eth|.gwei/...`
+// URL. Returns null when the input isn't a `.eth`/`.gwei` target (matches the
+// scope enforced by the SW's ETH_HOST_RE/GWEI_HOST_RE + the DNR rule's
+// regexFilter). Accepts subdomains.
 function parseEthInput(raw: string): string | null {
   const trimmed = raw.trim().replace(/^https?:\/\//i, "");
   if (!trimmed) return null;
@@ -134,7 +135,7 @@ function parseEthInput(raw: string): string | null {
   if (!m || !m[1]) return null;
   const host = m[1].toLowerCase();
   const rest = m[2] || "/";
-  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(host)) return null;
+  if (!/^(?:[a-z0-9-]+\.)+(?:eth|gwei)$/.test(host)) return null;
   return `http://${host}${rest.startsWith("/") || rest.startsWith("?") || rest.startsWith("#") ? rest : `/${rest}`}`;
 }
 
@@ -909,9 +910,16 @@ function wireMenu(refs: Refs, ctx: TabContext) {
   // public ERC-4804 gateway, and route the click through the SW so it can
   // install the per-tab bypass before the navigation fires.
   const isWeb3 = ctx.kind === "web3" && !!ctx.contractAddress;
+  // `.gwei` names have a public gateway too — gwei.domains — but it's a
+  // different host shape (`<name>.gwei.domains`, not `<name>.limo`) and needs
+  // its own per-tab bypass message.
+  const isGwei = !isWeb3 && /\.gwei$/.test(ctx.ensName ?? "");
   if (isWeb3) {
     const label = refs.ethLimoItem.querySelector("span");
     if (label) label.textContent = "Open on w3eth.io";
+  } else if (isGwei) {
+    const label = refs.ethLimoItem.querySelector("span");
+    if (label) label.textContent = "Open on gwei.domains gateway";
   }
   refs.ethLimoItem.addEventListener("click", () => {
     close();
@@ -929,6 +937,16 @@ function wireMenu(refs: Refs, ctx: TabContext) {
           // UX but better than a dead button.
           if (!resp?.ok) location.assign(url);
         })
+        .catch(() => location.assign(url));
+      return;
+    }
+    if (isGwei) {
+      // `ensName` ends in `.gwei`, so `<ensName>.domains` is the public gwei
+      // gateway host. Route through the SW so it installs the per-tab bypass
+      // before navigating (else the gwei.domains DNR rule bounces us back).
+      const url = `https://${ctx.ensName}.domains${path}`;
+      chrome.runtime
+        .sendMessage({ type: "open-on-gwei-domains", url })
         .catch(() => location.assign(url));
       return;
     }
@@ -974,7 +992,7 @@ function wireAddressBar(
 ): AddressField {
   const field: AddressField = setupAddressField(refs.urlInput, {
     shadowRoot: refs.shadow,
-    placeholder: "name.eth",
+    placeholder: "name.eth or name.gwei",
     onSubmit: (text) => {
       const url = parseEthInput(text);
       if (!url) {
@@ -1095,7 +1113,10 @@ async function mount(ctx: TabContext) {
   // carry the contract address as `ensName`. There is no associated ENS name,
   // so the history link has nothing to point at.
   const isAddressNav = /^0x[a-f0-9]{40}$/i.test(ctx.ensName);
-  if (isAddressNav) {
+  // No public history site for contract addresses or `.gwei` (GNS) names — the
+  // ENS history link only makes sense for `.eth`.
+  const isGweiNav = /\.gwei$/.test(ctx.ensName.toLowerCase());
+  if (isAddressNav || isGweiNav) {
     refs.ensHistoryLink.style.display = "none";
   } else {
     refs.ensHistoryLink.href = `https://ens.eth.sh/history/${ctx.ensName.toLowerCase()}`;

@@ -62,6 +62,9 @@ const interceptToggle = document.getElementById(
 const interceptW3EthToggle = document.getElementById(
   "intercept-w3eth",
 ) as HTMLInputElement;
+const interceptGweiDomainsToggle = document.getElementById(
+  "intercept-gweidomains",
+) as HTMLInputElement;
 const autoPinIpfsToggle = document.getElementById(
   "auto-pin-ipfs",
 ) as HTMLInputElement;
@@ -732,6 +735,7 @@ onSettingsChanged((s) => {
   }
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
+  interceptGweiDomainsToggle.checked = s.interceptGweiDomains;
   autoPinIpfsToggle.checked = s.autoPinIpfsContent;
   if (
     document.activeElement !== web3SizeCapInput &&
@@ -747,6 +751,10 @@ interceptToggle.addEventListener("change", async () => {
 
 interceptW3EthToggle.addEventListener("change", async () => {
   await setSettings({ interceptW3Eth: interceptW3EthToggle.checked });
+});
+
+interceptGweiDomainsToggle.addEventListener("change", async () => {
+  await setSettings({ interceptGweiDomains: interceptGweiDomainsToggle.checked });
 });
 
 autoPinIpfsToggle.addEventListener("change", async () => {
@@ -936,6 +944,7 @@ function renderWeb3List(entries: Web3CacheEntry[]) {
   syncIpfsGatewayUI(s);
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
+  interceptGweiDomainsToggle.checked = s.interceptGweiDomains;
   autoPinIpfsToggle.checked = s.autoPinIpfsContent;
   syncWeb3Budgets(s);
   loadWeb3List();

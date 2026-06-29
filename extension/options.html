@@ -16,7 +16,7 @@
         </span>
         <h1><a href="http://dapp3.eth.link" target="_blank" rel="noopener">dapp3.eth</a></h1>
       </div>
-      <p class="sub">Your local-first ENS gateway.</p>
+      <p class="sub">Your local-first ENS &amp; GNS gateway.</p>
 
       <section>
         <h2>Ethereum RPC endpoint</h2>
@@ -254,7 +254,7 @@
       <section>
         <h2>Gateway interception</h2>
         <p class="hint">
-          Rewrites public ENS gateways to the underlying name/address and
+          Rewrites public ENS / GNS gateways to the underlying name/address and
           resolves locally. Turn off to fall back to the public gateways.
         </p>
         <label class="toggle-row" for="intercept-ethlimo">
@@ -276,6 +276,16 @@
               <code>0x&lt;addr&gt;.1.w3link.io</code> to a local
               <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a>
               resolution. Requires a local IPFS node.
+            </span>
+          </span>
+        </label>
+        <label class="toggle-row" for="intercept-gweidomains">
+          <input type="checkbox" id="intercept-gweidomains" />
+          <span class="toggle-text">
+            <span class="toggle-title">Intercept gwei.domains links</span>
+            <span class="toggle-sub" id="intercept-gweidomains-sub">
+              Rewrites <code>*.gwei.domains</code> to the underlying
+              <code>.gwei</code> name. Requires a local IPFS node.
             </span>
           </span>
         </label>
