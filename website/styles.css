@@ -438,14 +438,6 @@ main {
   overflow: hidden;
 }
 
-.band-inner::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: linear-gradient(180deg, var(--sky-400), rgba(52, 211, 153, 0.6));
-}
-
 .band-copy {
   position: relative;
   z-index: 1;

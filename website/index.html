@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>dapp3.eth · resolve .eth domains, verified locally</title>
+    <title>dapp3.eth · resolve .eth and .gwei domains, verified locally</title>
     <meta
       name="description"
-      content="A browser extension that resolves .eth names directly against Ethereum state via a local light client. Serves IPFS contenthashes from your own node, can auto-pin resolved CIDs locally, and loads onchain HTML (ERC-4804) verified on your device. No gateway. No trust."
+      content="A browser extension that resolves .eth and .gwei names directly against Ethereum state via a local light client. Serves IPFS contenthashes from your own node, can auto-pin resolved CIDs locally, and loads onchain HTML (ERC-4804) verified on your device. No gateway. No trust."
     />
 
     <meta property="og:type" content="website" />
@@ -14,7 +14,7 @@
     <meta property="og:title" content="dapp3.eth" />
     <meta
       property="og:description"
-      content="Open .eth websites like any other, verified locally. A browser extension that resolves ENS via a light client and serves content from your own IPFS node."
+      content="Open .eth and .gwei websites like any other, verified locally. A browser extension that resolves ENS and GNS via a light client and serves content from your own IPFS node."
     />
     <meta property="og:image" content="https://dapp3.eth.limo/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -24,7 +24,7 @@
     <meta name="twitter:title" content="dapp3.eth" />
     <meta
       name="twitter:description"
-      content="Open .eth websites like any other, verified locally. A browser extension that resolves ENS via a light client and serves content from your own IPFS node."
+      content="Open .eth and .gwei websites like any other, verified locally. A browser extension that resolves ENS and GNS via a light client and serves content from your own IPFS node."
     />
     <meta name="twitter:image" content="https://dapp3.eth.limo/og.png" />
 
@@ -61,16 +61,16 @@
       <section class="hero">
         <div class="hero-orb hero-orb-left" aria-hidden="true"></div>
         <div class="hero-orb hero-orb-right" aria-hidden="true"></div>
-        <span class="eyebrow">IPFS Desktop + Helios + ERC-4804</span>
+        <span class="eyebrow">IPFS Desktop + Helios + ENS/GNS + ERC-4804</span>
         <h1>
-          Open <code>.eth</code> websites like any other,
+          Open <code>.eth</code> and <code>.gwei</code> websites like any other,
           <span class="accent">verified locally</span>.
         </h1>
         <p class="lede">
-          A browser extension that resolves ENS names directly against Ethereum
-          state via a light client. Content comes from your own IPFS node, or
-          straight from the contract for onchain dapps. No public gateway.
-          Nothing to trust in the middle.
+          A browser extension that resolves ENS and GNS names directly against
+          Ethereum state via a light client. Content comes from your own IPFS
+          node, or straight from the contract for onchain dapps. No public
+          gateway. Nothing to trust in the middle.
         </p>
         <div class="hero-actions">
           <a
@@ -95,9 +95,9 @@
             <span></span><span></span><span></span>
           </span>
           <span class="addrbar-url">
-            <span class="addrbar-scheme">https://</span>vitalik<span
+            <span class="addrbar-scheme">https://</span>apoorv<span
               class="addrbar-tld"
-              >.eth</span
+              >.gwei</span
             >
           </span>
           <span class="addrbar-badge"
@@ -113,14 +113,12 @@
             <span class="section-kicker">Why this exists</span>
             <h2 class="band-title">The trust boundary belongs on your machine.</h2>
             <p class="band-body">
-              Typing <code>name.eth</code> in a browser usually meant trusting a
-              gateway like <code>eth.limo</code>. That was always the wrong trust
-              model.
+              Public gateways like <code>eth.limo</code> and
+              <code>gwei.domains</code> sit between you and the site.
             </p>
             <p class="band-body">
-              dapp3 resolves ENS on your machine, verifies it with a Helios light
-              client, and loads content from your own local IPFS node. No
-              gateway. No shared DNS. No middleman.
+              dapp3 resolves ENS and GNS locally, verifies with Helios, and
+              serves content from your own IPFS node.
             </p>
           </div>
           <div class="trust-panel" aria-hidden="true">
@@ -134,7 +132,7 @@
                 <strong>Removed</strong>
               </div>
               <div class="trust-row">
-                <span>ENS resolution</span>
+                <span>ENS / GNS resolution</span>
                 <strong>Helios verified</strong>
               </div>
               <div class="trust-row">
@@ -154,7 +152,7 @@
       <section id="how" class="how">
         <div class="section-heading">
           <span class="section-kicker">Flow</span>
-          <h2 class="section-title">How a <code>.eth</code> navigation works</h2>
+          <h2 class="section-title">How a <code>.eth</code> or <code>.gwei</code> navigation works</h2>
           <p class="section-sub">
             Three local components. Everything the extension reads from the
             network, it verifies.
@@ -167,8 +165,8 @@
             <h3>Intercept</h3>
             <p>
               The service worker catches the navigation to <code>*.eth</code>
-              before Chrome issues DNS. The browser never asks a public
-              resolver where your ENS name points.
+              or <code>*.gwei</code> before Chrome issues DNS. The browser never
+              asks a public resolver where your name points.
             </p>
           </li>
           <li class="step-card">
@@ -176,9 +174,9 @@
             <h3>Resolve &amp; verify</h3>
             <p>
               A Helios light client, running inside an offscreen document,
-              reads the ENS resolver's <code>contenthash</code> via
-              <code>eth_call</code>. Every read is proof-checked against the
-              beacon chain. The RPC you point it at is never trusted.
+              reads the ENS resolver or GNS NameNFT <code>contenthash</code>
+              via <code>eth_call</code>. Every read is proof-checked against
+              the beacon chain. The RPC you point it at is never trusted.
             </p>
           </li>
           <li class="step-card">
@@ -377,7 +375,7 @@
             <p>
               Each site gets its own origin via CID-per-subdomain. Cookies,
               <code>localStorage</code>, and service workers stay scoped to
-              one <code>.eth</code> site.
+              one resolved site.
             </p>
             <span class="feature-meta">Browser primitives stay clean</span>
           </div>
@@ -396,9 +394,9 @@
             </div>
             <h3>The real name, always</h3>
             <p>
-              A minimal banner shows the ENS name you actually typed, even
-              though the tab's URL is pointed at <code>localhost</code>. No
-              spoofing surface.
+              A minimal banner shows the ENS or GNS name you actually typed,
+              even though the tab's URL is pointed at <code>localhost</code>.
+              No spoofing surface.
             </p>
             <span class="feature-meta">Human-readable routing</span>
           </div>
@@ -499,7 +497,7 @@
             </div>
             <div class="status-pill">
               <span class="dot ok"></span>
-              Mainnet ready
+              .eth + .gwei names
             </div>
             <div class="status-pill">
               <span class="dot ok"></span>
