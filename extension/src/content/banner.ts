@@ -379,6 +379,7 @@ function buildBanner(): Refs {
     }
     .bookmarks-btn:hover,
     .ens-history-link:hover { background: #27272a; color: #f4f4f5; }
+    .ens-history-link[hidden] { display: none; }
     .menu {
       position: absolute; top: calc(100% + 4px); right: 0;
       display: none; min-width: 220px;
@@ -498,7 +499,7 @@ function buildBanner(): Refs {
     </div>
     <span class="right">
       <span class="toast">copied</span>
-      <a class="ens-history-link" target="_blank" rel="noopener noreferrer" title="View ENS History">View ENS History</a>
+      <a class="ens-history-link" target="_blank" rel="noopener noreferrer" title="View ENS History" hidden>View ENS History</a>
       <button class="bookmarks-btn" type="button" title="All Bookmarks">All Bookmarks</button>
       <span class="menu-wrap">
         <button class="menu-btn" type="button" aria-label="banner menu" title="Banner options">⋯</button>
@@ -1109,17 +1110,15 @@ async function mount(ctx: TabContext) {
   const currentUrlValue = () => `${ctx.ensName}${currentPath()}`;
   const field = wireAddressBar(refs, currentUrlValue);
 
-  // Address-mode navigations (0x<addr>.w3eth.io intercept, homepage 0x input)
-  // carry the contract address as `ensName`. There is no associated ENS name,
-  // so the history link has nothing to point at.
-  const isAddressNav = /^0x[a-f0-9]{40}$/i.test(ctx.ensName);
-  // No public history site for contract addresses or `.gwei` (GNS) names — the
-  // ENS history link only makes sense for `.eth`.
-  const isGweiNav = /\.gwei$/.test(ctx.ensName.toLowerCase());
-  if (isAddressNav || isGweiNav) {
-    refs.ensHistoryLink.style.display = "none";
+  // ENS History only supports `.eth`; hide it for `.gwei`, raw contract
+  // address mode, and any future non-ENS target shapes.
+  const lowerName = ctx.ensName.toLowerCase();
+  if (/^(?:[a-z0-9-]+\.)+eth$/.test(lowerName)) {
+    refs.ensHistoryLink.href = `https://ens.eth.sh/history/${lowerName}`;
+    refs.ensHistoryLink.hidden = false;
   } else {
-    refs.ensHistoryLink.href = `https://ens.eth.sh/history/${ctx.ensName.toLowerCase()}`;
+    refs.ensHistoryLink.hidden = true;
+    refs.ensHistoryLink.removeAttribute("href");
   }
 
   const render = () => {

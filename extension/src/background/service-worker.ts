@@ -1017,6 +1017,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ cached: false });
       return false;
     }
+    // GNS records are cheap to refresh (single contenthash call) and changed
+    // records can otherwise strand users on stale, now-unavailable IPFS CIDs.
+    if (GWEI_HOST_RE.test(name)) {
+      sendResponse({ cached: false });
+      return false;
+    }
     (async () => {
       // Address-mode (w3eth.io / homepage 0x input): look up the per-contract
       // cache rather than the ENS-keyed one. The synthetic cache entry below

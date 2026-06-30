@@ -252,6 +252,11 @@ a.ghost:hover {
   color: var(--text-primary);
 }
 
+button.ghost[hidden],
+a.ghost[hidden] {
+  display: none;
+}
+
 /* Centered stage: bars + status message, fills the viewport below topbar. */
 .stage {
   min-height: calc(100vh - 56px);

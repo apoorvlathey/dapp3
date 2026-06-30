@@ -63,6 +63,10 @@ export default defineManifest({
     // redirect is a silent no-op.
     "*://*.eth.limo/*",
     "*://*.eth.link/*",
+    // Same reason for optional `*.gwei.domains` interception. The DNR rule
+    // rewrites `<x>.gwei.domains` -> `<x>.gwei`; without host access it silently
+    // no-ops.
+    "*://*.gwei.domains/*",
     // Same reason for optional ERC-4804 hosted-gateway interception. The DNR
     // rules rewrite those URLs into the interstitial with the contract address
     // stashed in the fragment; without host access the redirect is a silent

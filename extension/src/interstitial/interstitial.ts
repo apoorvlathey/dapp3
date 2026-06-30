@@ -139,6 +139,24 @@ function ethLimoFallbackUrl(): string | null {
   return null;
 }
 
+function gatewayFallbackMessageType(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+    if (/^(?:[a-z0-9-]+\.)+eth\.(?:limo|link)$/.test(host)) {
+      return "open-on-eth-limo";
+    }
+    if (/^(?:[a-z0-9-]+\.)+gwei\.domains$/.test(host)) {
+      return "open-on-gwei-domains";
+    }
+    if (/^0x[a-f0-9]{40}\.w3eth\.io$/.test(host)) {
+      return "open-on-w3eth";
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
 function showError(detail: string) {
   errorDetailEl.textContent = detail;
   errorCardEl.hidden = false;
@@ -154,6 +172,16 @@ function showError(detail: string) {
     ethlimoFallbackEl.hidden = false;
   }
 }
+
+ethlimoFallbackEl.addEventListener("click", (e) => {
+  const url = ethlimoFallbackEl.href;
+  const type = gatewayFallbackMessageType(url);
+  if (!type) return;
+  e.preventDefault();
+  chrome.runtime.sendMessage({ type, url }).catch(() => {
+    location.assign(url);
+  });
+});
 
 function clearError() {
   errorCardEl.hidden = true;
