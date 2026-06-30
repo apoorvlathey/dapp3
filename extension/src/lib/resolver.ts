@@ -36,6 +36,15 @@ const RESOLVER_ABI = parseAbi([
   "function addr(bytes32 node) view returns (address)",
 ]);
 
+// Gwei Name Service (GNS) NameNFT — mainnet (same address on Sepolia). Unlike
+// ENS, the NameNFT is its *own* ENS-style resolver: it exposes
+// `contenthash(bytes32 node)` directly (the tokenId is the ENS namehash of the
+// full name), so there's no registry / UniversalResolver hop — resolution is a
+// single eth_call against this address. The contenthash is stored in the same
+// EIP-1577 form ENS uses (`0xe301 || <cidv1>`), so the same decoder handles it.
+// See github.com/lucadonnoh/gwei-names.
+const GWEI_NAMENFT = "0x9D51D507BC7264d4fE8Ad1cf7Fe191933A0a81d6" as const;
+
 let heliosClientCache: PublicClient | null = null;
 let directClientCache: { url: string; client: PublicClient } | null = null;
 
@@ -214,10 +223,104 @@ export async function resolveEns(
   return await fetchPinAndCacheErc4804(client, address, lower, trustedDirectly);
 }
 
+/** True for a fully-qualified `.gwei` name (e.g. `donnoh.gwei`, `a.b.gwei`). */
+export function isGweiName(name: string): boolean {
+  return /^(?:[a-z0-9-]+\.)+gwei$/.test(name.toLowerCase());
+}
+
+// Resolve a `.gwei` name to its IPFS/IPNS contenthash, verified through Helios
+// exactly like resolveEns. Simpler than ENS: the GNS NameNFT is its own
+// resolver, so we skip the registry/UniversalResolver lookup and read
+// contenthash(namehash(name)) straight off the NameNFT in one eth_call. No
+// ERC-4804 fallback for v1 — `.gwei` serves ipfs/ipns contenthashes only.
+export async function resolveGwei(
+  name: string,
+  opts: ResolveOptions = {},
+): Promise<ResolveResponse> {
+  const lower = name.toLowerCase();
+  if (!isGweiName(lower)) {
+    return { ok: false, error: `not a .gwei name: ${name}` };
+  }
+
+  const { rpcUrl } = await getSettings();
+  if (!rpcUrl) {
+    return {
+      ok: false,
+      error: "No Ethereum RPC configured. Set one in the extension options.",
+    };
+  }
+
+  let client: PublicClient;
+  let trustedDirectly = false;
+  if (opts.bypassHelios) {
+    client = getDirectClient(rpcUrl);
+    trustedDirectly = true;
+  } else {
+    try {
+      const status = await ensureHeliosBooted();
+      if (status.state !== "synced") {
+        return {
+          ok: false,
+          error: `Helios is ${status.state}. Wait for sync or choose "bypass Helios".`,
+        };
+      }
+      client = getHeliosClient();
+    } catch (e) {
+      return { ok: false, error: `Helios bootstrap failed: ${describe(e)}` };
+    }
+  }
+
+  let raw: `0x${string}`;
+  try {
+    raw = await client.readContract({
+      address: GWEI_NAMENFT,
+      abi: RESOLVER_ABI,
+      functionName: "contenthash",
+      args: [namehash(lower)],
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Failed to read contenthash for ${lower}: ${describeRpcFailure(e)}`,
+    };
+  }
+
+  if (!raw || raw === "0x") {
+    return { ok: false, error: `${lower} has no website (contenthash) set.` };
+  }
+
+  let codec: string | undefined;
+  let decoded: string | undefined;
+  try {
+    codec = getCodec(raw);
+    decoded = decodeContentHash(raw);
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Failed to decode contenthash for ${lower}: ${describe(e)}`,
+    };
+  }
+
+  if (decoded != null && (codec === "ipfs" || codec === "ipns")) {
+    return {
+      ok: true,
+      kind: codec,
+      value: decoded,
+      ensName: lower,
+      trustedDirectly,
+    };
+  }
+  return {
+    ok: false,
+    error: `Unsupported contenthash codec "${codec ?? "unknown"}" for ${lower}. .gwei sites serve ipfs / ipns.`,
+  };
+}
+
 // Resolve a raw 0x contract address as an ERC-4804 dapp, skipping ENS lookup.
-// Used for `0x<addr>.w3eth.io` interception and the homepage's address-mode
-// input. The "ensName" carried on the response is the lowercased address
-// itself, since there is no associated ENS name for this navigation.
+// Used for ERC-4804 hosted-gateway interception (`w3eth.io` / mainnet
+// `w3link.io`) and the homepage's address-mode input. The "ensName" carried on
+// the response is the lowercased address itself, since there is no associated
+// ENS name for this navigation.
 export async function resolveContractAddress(
   address: string,
   opts: ResolveOptions = {},
@@ -270,7 +373,7 @@ export async function resolveContractAddress(
 // Shared ERC-4804 path: fetch the contract body via Helios, sha256-dedupe
 // against the per-contract cache, pin to local Kubo if changed, evict LRU
 // entries to fit budget. Used by both ENS resolution (when contenthash is
-// missing) and direct-address resolution (w3eth.io / homepage 0x input).
+// missing) and direct-address resolution (ERC-4804 gateway / homepage 0x input).
 async function fetchPinAndCacheErc4804(
   client: PublicClient,
   address: `0x${string}`,

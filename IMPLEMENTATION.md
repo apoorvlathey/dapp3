@@ -143,14 +143,14 @@ Changing the default touches all four. Don't forget the one in `fetchFreshCheckp
 
 ## 7. Kubo / IPFS integration
 
-- **Port 5001 (the Kubo RPC API) is not used**, except briefly during earlier onboarding probes. Kubo's RPC rejects browser requests whose `Origin` isn't on its allowlist (CSRF defense), so we'd need to prompt users to edit their Kubo config. The content gateway on 8080 is all we need.
+- **Normal IPFS contenthash serving only needs the gateway on 8080.** The Kubo RPC API on 5001 is opt-in for write-like operations: ERC-4804 `add` and optional IPFS contenthash auto-pinning via `pin/add`. Kubo's RPC rejects browser requests whose `Origin` isn't on its allowlist (CSRF defense), so the extension probes it and surfaces the one-time config command when a user enables features that need it.
 - **Liveness probe**: `fetch("http://bafkqaaa.ipfs.localhost:8080/", { mode: "no-cors", signal: AbortSignal.timeout(2500) })`. `bafkqaaa` is the empty-UnixFS CID. A resolved promise (even with an opaque response) proves that (a) Kubo is up on 8080, and (b) subdomain routing is enabled. Both are the hard requirements.
 - **Subdomain gateway requires CIDv1 base32 lowercase.** `@ensdomains/content-hash` emits in this form already for IPFS; we don't convert. If we ever encounter CIDv0 from a contenthash, `multiformats` is imported for the fallback (not currently triggered in practice).
 - **IPNS label encoding.** DNS-safe: `.` → `-`, `-` → `--`. Labels >63 chars are invalid. ENS labels never hit 63 chars so this is a theoretical concern only.
 - **HTTPS upgrade.** Chrome's "Always use secure connections" would redirect `http://*.ipfs.localhost` to HTTPS, which Kubo doesn't serve. Bypassed via a static `declarativeNetRequest` allow-rule at `public/rules/no_https_upgrade.json`.
 - **IPNS trust gap.** ENS → IPNS-key mapping is verified by Helios. IPNS-key → CID resolution happens inside Kubo and is *not* verified by us. Documented as a known v1 limitation.
 - **Do not use Kubo's DNSLink path** (`http://vitalik-eth.ipns.localhost:8080`). It's known-broken for `.eth` ([kubo#10639](https://github.com/ipfs/kubo/issues/10639)) and would bypass Helios entirely.
-- **ERC-4804 path uses the Kubo RPC API.** Unlike the IPFS contenthash path, the ERC-4804 fallback (PRD_ERC4804.md) needs to *write* content to Kubo via `POST /api/v0/add`. This requires the user to allow the extension's origin in `API.HTTPHeaders.Access-Control-Allow-Origin` once. The extension probes `/api/v0/version` first; on 403/405 the interstitial renders an inline setup card with prefilled `ipfs config` commands instead of routing to the error page. The probe and the actual add helper share the CORS-classification path in `src/lib/kubo.ts`.
+- **Kubo RPC API writes are explicit.** The ERC-4804 fallback (PRD_ERC4804.md) writes content to Kubo via `POST /api/v0/add`; optional IPFS auto-pinning calls `POST /api/v0/pin/add` for the resolved CID. Both require the user to allow the extension's origin in `API.HTTPHeaders.Access-Control-Allow-Origin` once. The extension probes `/api/v0/version` first; on 403/405 the interstitial or Options UI shows prefilled `ipfs config` commands. The probe, add helper, and pin helper share the CORS-classification path in `src/lib/kubo.ts`.
 - **Two web3 caches**, intentionally separate. `src/lib/cache.ts` is keyed by ENS name and gives a synchronous redirect target on repeat visits (sub-50 ms first paint). `src/lib/web3url-cache.ts` is keyed by contract address and stores the sha256 of the onchain HTML body plus the resulting CID — its job is to skip the Kubo `add` round-trip when the body bytes haven't changed. Both are populated on a successful Helios-verified resolve.
 - **Why sha256 and not the IPFS CID?** Computing a CIDv1 locally would require bundling a UnixFS encoder, which more than doubles the SW chunk. We sidestep that by hashing the raw bytes ourselves (`crypto.subtle.digest`) and trusting Kubo to be content-addressed: re-adding identical bytes is idempotent, but skipping the round-trip on a hash match is the win we actually want.
 - **MFS layout for evictability**: pinned web3 bodies live at `/dapp3/web3/<contract>/<contentHash>`. Eviction issues `pin/rm` on the CID and `files/rm --recursive --force` on the path. The recursive form lets us tolerate Kubo's internal layout choices (file vs. directory), and `force` makes a missing path a no-op. We accept best-effort failure here: a stuck pin only leaks Kubo storage, not extension state.
@@ -205,8 +205,8 @@ Chronological log of real failures encountered and how they were solved. Useful 
 
 ### Onboarding probed Kubo on port 5001 and got 403
 - **Symptom**: First-run test showed "IPFS not reachable" even though IPFS Desktop was running.
-- **Root cause**: Kubo's RPC API (port 5001) rejects browser `Origin` requests as a CSRF defense. The extension never actually needs 5001.
-- **Fix**: Switched probe to `fetch("http://bafkqaaa.ipfs.localhost:8080/", { mode: "no-cors" })`. See §7.
+- **Root cause**: Kubo's RPC API (port 5001) rejects browser `Origin` requests as a CSRF defense. The normal IPFS contenthash path never needs 5001, only the gateway on 8080.
+- **Fix**: Switched the required probe to `fetch("http://bafkqaaa.ipfs.localhost:8080/", { mode: "no-cors" })`. The optional 5001 probe is now reserved for ERC-4804 and IPFS auto-pinning setup. See §7.
 
 ### Stale localStorage checkpoint causing silent "out of sync" loop
 - **Symptom**: Even after passing a fresh checkpoint, Helios's internal state reflected an older one.

@@ -17,11 +17,24 @@ export type Settings = {
   // intercepting without a working IPFS node would just break those links for
   // the user. Name is historical — it governs both eth.limo and eth.link.
   interceptEthLimo: boolean;
-  // Intercept `0x<40hex>.w3eth.io` navigations and route the contract address
-  // through local ERC-4804 resolution. Same default-true / Kubo-gated story as
-  // interceptEthLimo. The subdomain is the contract address directly, so the
-  // resolver skips ENS lookup and goes straight to the ERC-4804 fetch path.
+  // Intercept ERC-4804 hosted gateway navigations (`0x<addr>.w3eth.io` and
+  // `0x<addr>.1.w3link.io`) and route the contract address through local
+  // ERC-4804 resolution. Same default-true / Kubo-gated story as
+  // interceptEthLimo. The gateway host carries the contract address directly,
+  // so the resolver skips ENS lookup and goes straight to the ERC-4804 fetch
+  // path.
   interceptW3Eth: boolean;
+  // Local Kubo subdomain gateway used to serve resolved IPFS/IPNS/ERC-4804
+  // content. Defaults to Kubo's standard localhost:8080 gateway, but users
+  // can point routing at another subdomain-capable gateway host.
+  ipfsGatewayHost: string;
+  ipfsGatewayPort: number;
+  // Intercept `*.gwei.domains` navigations (the public Gwei Name Service
+  // gateway) and route them through local resolution (Helios + Kubo) instead.
+  // The DNR rule rewrites `<label>.gwei.domains` → `<label>.gwei`, which the
+  // .gwei redirect rule then catches. Same default-true / Kubo-gated story as
+  // interceptEthLimo.
+  interceptGweiDomains: boolean;
   // ERC-4804 cache budgets. See PRD_ERC4804.md §5.4 / §7 / W4. Both bound
   // total Kubo storage used by web3:// dapps; LRU eviction kicks in when
   // either is exceeded. Defaults are exported from web3url-cache.ts.
@@ -31,6 +44,10 @@ export type Settings = {
   // ERC-4804 contract. Keeps Helios load light on heavy users by skipping
   // the eth_call when a recent revalidation has already happened. See PRD §5.3.
   web3RevalidateMinIntervalMs?: number;
+  // Optional: after a normal ENS IPFS contenthash resolve, ask the local Kubo
+  // API to recursively pin the resolved CID. Off by default because Kubo's API
+  // requires a one-time CORS allowlist entry for this extension origin.
+  autoPinIpfsContent: boolean;
 };
 
 const KEY = "settings";
@@ -39,6 +56,10 @@ const DEFAULT: Settings = {
   onboardingComplete: false,
   interceptEthLimo: true,
   interceptW3Eth: true,
+  ipfsGatewayHost: "localhost",
+  ipfsGatewayPort: 8080,
+  interceptGweiDomains: true,
+  autoPinIpfsContent: false,
 };
 
 export async function getSettings(): Promise<Settings> {

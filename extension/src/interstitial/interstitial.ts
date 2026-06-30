@@ -17,8 +17,8 @@ import { colorizeJson } from "@/lib/colorize-json";
 // (?name=&path=…) is kept as a fallback for manual/programmatic navigations.
 //
 // `ensName` is the resolution target — either a `.eth` name (ENS mode) or a
-// `0x<40hex>` contract address (w3eth.io / homepage address mode). The SW
-// dispatches based on the format. `mode` is exposed for UI affordances that
+// `0x<40hex>` contract address (ERC-4804 gateway / homepage address mode). The
+// SW dispatches based on the format. `mode` is exposed for UI affordances that
 // only make sense in one mode (ENS history link, eth.limo fallback, etc.).
 type TargetMode = "ens" | "address";
 
@@ -34,7 +34,17 @@ function parseTarget(): {
     try {
       const u = new URL(raw);
       const host = u.hostname.replace(/\.$/, "").toLowerCase();
-      // w3eth.io subdomain is the contract address directly.
+      // ERC-4804 gateway subdomains carry the contract address directly.
+      const w3linkMatch = host.match(/^(0x[a-f0-9]{40})\.1\.w3link\.io$/i);
+      if (w3linkMatch && w3linkMatch[1]) {
+        return {
+          ensName: w3linkMatch[1].toLowerCase(),
+          path: u.pathname || "/",
+          search: u.search,
+          hash: u.hash,
+          mode: "address",
+        };
+      }
       const addrMatch = host.match(/^(0x[a-f0-9]{40})\.w3eth\.io$/i);
       if (addrMatch && addrMatch[1]) {
         return {
@@ -120,8 +130,31 @@ function ethLimoFallbackUrl(): string | null {
     if (!/^0x[a-f0-9]{40}$/.test(ensName)) return null;
     return `https://${ensName}.w3eth.io${p}${search}${hash}`;
   }
-  if (!/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) return null;
-  return `https://${ensName}.limo${p}${search}${hash}`;
+  if (/^(?:[a-z0-9-]+\.)+eth$/.test(ensName)) {
+    return `https://${ensName}.limo${p}${search}${hash}`;
+  }
+  if (/^(?:[a-z0-9-]+\.)+gwei$/.test(ensName)) {
+    return `https://${ensName}.domains${p}${search}${hash}`;
+  }
+  return null;
+}
+
+function gatewayFallbackMessageType(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+    if (/^(?:[a-z0-9-]+\.)+eth\.(?:limo|link)$/.test(host)) {
+      return "open-on-eth-limo";
+    }
+    if (/^(?:[a-z0-9-]+\.)+gwei\.domains$/.test(host)) {
+      return "open-on-gwei-domains";
+    }
+    if (/^0x[a-f0-9]{40}\.w3eth\.io$/.test(host)) {
+      return "open-on-w3eth";
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
 }
 
 function showError(detail: string) {
@@ -133,10 +166,22 @@ function showError(detail: string) {
     ethlimoFallbackEl.href = fb;
     ethlimoFallbackEl.textContent = isAddressMode
       ? "Open on w3eth.io →"
-      : "Open on eth.limo gateway →";
+      : /^(?:[a-z0-9-]+\.)+gwei$/.test(ensName)
+        ? "Open on gwei.domains gateway →"
+        : "Open on eth.limo gateway →";
     ethlimoFallbackEl.hidden = false;
   }
 }
+
+ethlimoFallbackEl.addEventListener("click", (e) => {
+  const url = ethlimoFallbackEl.href;
+  const type = gatewayFallbackMessageType(url);
+  if (!type) return;
+  e.preventDefault();
+  chrome.runtime.sendMessage({ type, url }).catch(() => {
+    location.assign(url);
+  });
+});
 
 function clearError() {
   errorCardEl.hidden = true;
@@ -389,7 +434,7 @@ async function triggerResolve(bypassHelios = false) {
     ? "Resolving via RPC (skipping Helios)…"
     : isAddressMode
       ? "Fetching onchain HTML…"
-      : "Fetching ENS contenthash…";
+      : "Fetching contenthash…";
   setBar("loading");
   hideSetupCard();
   clearSetupStatus();

@@ -2,17 +2,30 @@ import "@/lib/sw-dom-shim";
 import {
   resolveContractAddress,
   resolveEns,
+  resolveGwei,
   getOrStartHelios,
 } from "@/lib/resolver";
-import { buildSubdomainUrl, parseGatewayHost } from "@/lib/gateway";
+import {
+  buildSubdomainUrl,
+  DEFAULT_IPFS_GATEWAY_HOST,
+  getIpfsGatewayConfig,
+  parseGatewayHost,
+  type IpfsGatewayConfig,
+} from "@/lib/gateway";
 import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
 import type {
   ContentUpdatedMessage,
+  IpfsPinStatus,
+  IpfsPinStatusUpdatedMessage,
   ResolveKind,
   TabContext,
 } from "@/lib/messaging";
 import { findCachedByGatewayLabel, getCached, setCached } from "@/lib/cache";
+import {
+  getAutoPinRecord,
+  rememberAutoPinRecord,
+} from "@/lib/ipfs-auto-pins";
 import {
   bumpWeb3LastAccess,
   getWeb3CacheEntry,
@@ -20,10 +33,18 @@ import {
   removeWeb3CacheEntry,
   mfsPathFor,
 } from "@/lib/web3url-cache";
-import { removeMfsPath, unpinFromKubo } from "@/lib/kubo";
+import {
+  getKuboPinType,
+  pinCidToKubo,
+  removeMfsPath,
+  statKuboDagSize,
+  unpinFromKubo,
+} from "@/lib/kubo";
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
+const GWEI_HOST_RE = /^(?:[a-z0-9-]+\.)+gwei\.?$/i;
 const W3ETH_HOST_RE = /^0x[a-f0-9]{40}\.w3eth\.io\.?$/i;
+const W3LINK_HOST_RE = /^0x[a-f0-9]{40}\.1\.w3link\.io\.?$/i;
 const ADDRESS_RE = /^0x[a-f0-9]{40}$/i;
 
 // Dynamic DNR rule IDs. Must not collide with the static rules in
@@ -35,9 +56,9 @@ const ETH_LIMO_REDIRECT_RULE_ID = 1002;
 // public gateway even when interception is on. Session rules are evicted on
 // browser shutdown, so there's no cross-session leak.
 const ETH_LIMO_BYPASS_RULE_ID = 1003;
-// Catches `https?://0x<addr>.w3eth.io[/path]` and rewrites to the interstitial
-// with the original URL stashed in the fragment. Same shape as the .eth rule:
-// the interstitial recovers the URL via location.hash and parses the contract
+// Catches ERC-4804 hosted gateway links and rewrites to the interstitial with
+// the original URL stashed in the fragment. Same shape as the .eth rule: the
+// interstitial recovers the URL via location.hash and parses the contract
 // address out of the hostname. Toggle: settings.interceptW3Eth.
 const W3ETH_REDIRECT_RULE_ID = 1004;
 // Session-scoped ALLOW rule that punches through the w3eth.io DNR redirect
@@ -47,6 +68,30 @@ const W3ETH_REDIRECT_RULE_ID = 1004;
 // below covers the JS-layer redirect (onBeforeNavigate); the DNR rule covers
 // the network-layer redirect for browsers where that one fires.
 const W3ETH_BYPASS_RULE_ID = 1005;
+const W3LINK_REDIRECT_RULE_ID = 1006;
+const IPFS_GATEWAY_HTTP_ALLOW_RULE_ID = 1007;
+const IPNS_GATEWAY_HTTP_ALLOW_RULE_ID = 1008;
+// Rewrites `https?://<label>.gwei.domains[/path]` -> `http://<label>.gwei`, which
+// the .gwei redirect rule (1001) then routes through the interstitial. Toggle:
+// settings.interceptGweiDomains.
+const GWEI_DOMAINS_REDIRECT_RULE_ID = 1009;
+// Session-scoped ALLOW rule punching through the gwei.domains redirect for
+// specific tabs, so the banner/error "Open on gwei.domains" action reaches the
+// public gateway even when interception is on. Mirrors ETH_LIMO_BYPASS_RULE_ID.
+const GWEI_DOMAINS_BYPASS_RULE_ID = 1010;
+
+const GATEWAY_HTTP_ALLOW_RESOURCE_TYPES = [
+  chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+  chrome.declarativeNetRequest.ResourceType.SUB_FRAME,
+  chrome.declarativeNetRequest.ResourceType.STYLESHEET,
+  chrome.declarativeNetRequest.ResourceType.SCRIPT,
+  chrome.declarativeNetRequest.ResourceType.IMAGE,
+  chrome.declarativeNetRequest.ResourceType.FONT,
+  chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
+  chrome.declarativeNetRequest.ResourceType.MEDIA,
+  chrome.declarativeNetRequest.ResourceType.WEBSOCKET,
+  chrome.declarativeNetRequest.ResourceType.OTHER,
+];
 
 function errorPageUrl(
   name: string,
@@ -75,9 +120,9 @@ async function installEthRedirectRule() {
   // original URL verbatim via `location.hash.slice(1)` — no encoding needed.
   //
   // NB: DNR redirects require host permission for the *target URL of the
-  // request*. That's why manifest.config.ts lists `*://*.eth/*` under
-  // host_permissions. Without it this rule silently no-ops and Chrome's DNS
-  // probe wins the race.
+  // request*. That's why manifest.config.ts lists `*://*.eth/*` and
+  // `*://*.gwei/*` under host_permissions. Without it this rule silently
+  // no-ops and Chrome's DNS probe wins the race.
   const interstitial = chrome.runtime.getURL("interstitial.html");
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: [ETH_REDIRECT_RULE_ID],
@@ -90,8 +135,9 @@ async function installEthRedirectRule() {
           redirect: { regexSubstitution: `${interstitial}#\\0` },
         },
         condition: {
-          // Any *.eth host (first-level or subdomain), any scheme/port, any path/query/fragment.
-          regexFilter: "^https?://(?:[a-z0-9-]+\\.)+eth\\.?(?::\\d+)?(?:/.*)?$",
+          // Any *.eth or *.gwei host (first-level or subdomain), any scheme/port, any path/query/fragment.
+          regexFilter:
+            "^https?://(?:[a-z0-9-]+\\.)+(?:eth|gwei)\\.?(?::\\d+)?(?:/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -101,14 +147,54 @@ async function installEthRedirectRule() {
   });
 }
 
-async function syncW3EthRedirectRule(enabled: boolean) {
-  // Rewrites `https?://0x<40hex>.w3eth.io[:port][/path]` → the interstitial,
-  // with the original URL preserved in the fragment so the page can recover
-  // the contract address and resolve via local Helios + Kubo. The fragment
-  // form mirrors the .eth rule exactly so interstitial.ts has one parse path.
+async function syncIpfsGatewayHttpAllowRules(gateway: IpfsGatewayConfig) {
+  const ruleIds = [
+    IPFS_GATEWAY_HTTP_ALLOW_RULE_ID,
+    IPNS_GATEWAY_HTTP_ALLOW_RULE_ID,
+  ];
+  if (gateway.host === DEFAULT_IPFS_GATEWAY_HOST) {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: ruleIds,
+    });
+    return;
+  }
+
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: ruleIds,
+    addRules: [
+      {
+        id: IPFS_GATEWAY_HTTP_ALLOW_RULE_ID,
+        priority: 1,
+        action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
+        condition: {
+          urlFilter: `||ipfs.${gateway.host}`,
+          resourceTypes: GATEWAY_HTTP_ALLOW_RESOURCE_TYPES,
+        },
+      },
+      {
+        id: IPNS_GATEWAY_HTTP_ALLOW_RULE_ID,
+        priority: 1,
+        action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
+        condition: {
+          urlFilter: `||ipns.${gateway.host}`,
+          resourceTypes: GATEWAY_HTTP_ALLOW_RESOURCE_TYPES,
+        },
+      },
+    ],
+  });
+}
+
+async function syncWeb3GatewayRedirectRules(enabled: boolean) {
+  // Rewrites ERC-4804 hosted gateway URLs into the interstitial, with the
+  // original URL preserved in the fragment so the page can recover the contract
+  // address and resolve via local Helios + Kubo.
+  //
+  // Supported gateway shapes:
+  //   - `https?://0x<40hex>.w3eth.io[:port][/path]`
+  //   - `https?://0x<40hex>.1.w3link.io[:port][/path]` (Ethereum mainnet)
   if (!enabled) {
     await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds: [W3ETH_REDIRECT_RULE_ID],
+      removeRuleIds: [W3ETH_REDIRECT_RULE_ID, W3LINK_REDIRECT_RULE_ID],
     });
     return;
   }
@@ -117,11 +203,11 @@ async function syncW3EthRedirectRule(enabled: boolean) {
   // user may need to remove + re-load the extension to pick up the new host.
   try {
     const has = await chrome.permissions.contains({
-      origins: ["*://*.w3eth.io/*"],
+      origins: ["*://*.w3eth.io/*", "*://*.w3link.io/*"],
     });
     if (!has) {
       console.warn(
-        "[dapp3] missing *://*.w3eth.io/* host permission — w3eth.io redirect will no-op." +
+        "[dapp3] missing ERC-4804 gateway host permission — hosted gateway redirects may no-op." +
           " Remove and re-load the unpacked extension to grant the new host.",
       );
     }
@@ -130,7 +216,7 @@ async function syncW3EthRedirectRule(enabled: boolean) {
   }
   const interstitial = chrome.runtime.getURL("interstitial.html");
   await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: [W3ETH_REDIRECT_RULE_ID],
+    removeRuleIds: [W3ETH_REDIRECT_RULE_ID, W3LINK_REDIRECT_RULE_ID],
     addRules: [
       {
         id: W3ETH_REDIRECT_RULE_ID,
@@ -142,6 +228,21 @@ async function syncW3EthRedirectRule(enabled: boolean) {
         condition: {
           regexFilter:
             "^https?://0x[a-f0-9]{40}\\.w3eth\\.io\\.?(?::\\d+)?(?:/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+        },
+      },
+      {
+        id: W3LINK_REDIRECT_RULE_ID,
+        priority: 2,
+        action: {
+          type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+          redirect: { regexSubstitution: `${interstitial}#\\0` },
+        },
+        condition: {
+          regexFilter:
+            "^https?://0x[a-f0-9]{40}\\.1\\.w3link\\.io\\.?(?::\\d+)?(?:/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -180,6 +281,42 @@ async function syncEthLimoRedirectRule(enabled: boolean) {
         condition: {
           regexFilter:
             "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.eth\\.(?:limo|link)\\.?(?::\\d+)?(/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+        },
+      },
+    ],
+  });
+}
+
+async function syncGweiDomainsRedirectRule(enabled: boolean) {
+  // Rewrites `https?://<label>.gwei.domains[:port][/path]` →
+  // `http://<label>.gwei[/path]`. The .gwei redirect rule then catches the
+  // result and routes through the interstitial → resolver → gateway flow, so
+  // the user gets local Helios-verified content instead of the public
+  // gwei.domains gateway. Mirrors syncEthLimoRedirectRule.
+  if (!enabled) {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [GWEI_DOMAINS_REDIRECT_RULE_ID],
+    });
+    return;
+  }
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: [GWEI_DOMAINS_REDIRECT_RULE_ID],
+    addRules: [
+      {
+        id: GWEI_DOMAINS_REDIRECT_RULE_ID,
+        // Lower than the .gwei redirect (priority 2) so the rewritten request
+        // flows through it on the next pass.
+        priority: 1,
+        action: {
+          type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+          redirect: { regexSubstitution: "http://\\1.gwei\\2" },
+        },
+        condition: {
+          regexFilter:
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.gwei\\.domains\\.?(?::\\d+)?(/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -272,11 +409,210 @@ async function removeEthLimoBypassForTab(tabId: number) {
   await setEthLimoBypassTabs(current.filter((id) => id !== tabId));
 }
 
+async function setGweiDomainsBypassTabs(tabIds: number[]) {
+  if (tabIds.length === 0) {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [GWEI_DOMAINS_BYPASS_RULE_ID],
+    });
+    return;
+  }
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [GWEI_DOMAINS_BYPASS_RULE_ID],
+    addRules: [
+      {
+        id: GWEI_DOMAINS_BYPASS_RULE_ID,
+        // Higher than both the .gwei redirect (2) and the gwei.domains redirect
+        // (1) so a gwei.domains main_frame request on a bypassed tab wins the
+        // ALLOW and reaches the real public gateway.
+        priority: 3,
+        action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
+        condition: {
+          regexFilter:
+            "^https?://([a-z0-9-]+(?:\\.[a-z0-9-]+)*)\\.gwei\\.domains\\.?(?::\\d+)?(/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+          tabIds,
+        },
+      },
+    ],
+  });
+}
+
+async function getGweiDomainsBypassTabs(): Promise<number[]> {
+  const rules = await chrome.declarativeNetRequest.getSessionRules();
+  const rule = rules.find((r) => r.id === GWEI_DOMAINS_BYPASS_RULE_ID);
+  return (rule?.condition.tabIds as number[] | undefined) ?? [];
+}
+
+async function addGweiDomainsBypassForTab(tabId: number) {
+  const current = await getGweiDomainsBypassTabs();
+  if (current.includes(tabId)) return;
+  await setGweiDomainsBypassTabs([...current, tabId]);
+}
+
+async function removeGweiDomainsBypassForTab(tabId: number) {
+  const current = await getGweiDomainsBypassTabs();
+  if (!current.includes(tabId)) return;
+  await setGweiDomainsBypassTabs(current.filter((id) => id !== tabId));
+}
+
 // Bypass set for the JS-layer w3eth.io redirect (the one in onBeforeNavigate
 // below). In-memory only — survives within an SW lifetime, lost on restart.
 // Combined with the session DNR ALLOW rule below, the SW restart edge case
 // only loses the JS layer; the DNR rule keeps holding through the restart.
 const w3EthBypassTabs = new Set<number>();
+const autoPinInflight = new Set<string>();
+
+function describeError(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+async function getConfiguredGateway() {
+  const settings = await getSettings().catch(() => null);
+  return getIpfsGatewayConfig(settings);
+}
+
+async function buildConfiguredSubdomainUrl(
+  kind: ResolveKind,
+  value: string,
+  path = "/",
+  search = "",
+  hash = "",
+): Promise<string> {
+  return buildSubdomainUrl(
+    kind,
+    value,
+    path,
+    search,
+    hash,
+    await getConfiguredGateway(),
+  );
+}
+
+async function getIpfsPinStatus(cid: string): Promise<IpfsPinStatus> {
+  const record = await getAutoPinRecord(cid).catch(() => null);
+  if (autoPinInflight.has(cid)) {
+    return {
+      cid,
+      state: "pending",
+      autoPinned: !!record,
+      sizeBytes: record?.sizeBytes,
+      pinnedAt: record?.pinnedAt,
+      ensName: record?.ensName,
+    };
+  }
+
+  let pinType;
+  try {
+    pinType = await getKuboPinType(cid);
+  } catch (e) {
+    return {
+      cid,
+      state: "error",
+      autoPinned: !!record,
+      error: describeError(e),
+      sizeBytes: record?.sizeBytes,
+      pinnedAt: record?.pinnedAt,
+      ensName: record?.ensName,
+    };
+  }
+
+  if (!pinType) {
+    return {
+      cid,
+      state: "unpinned",
+      autoPinned: !!record,
+      pinnedAt: record?.pinnedAt,
+      ensName: record?.ensName,
+    };
+  }
+
+  let sizeBytes = record?.sizeBytes;
+  if (sizeBytes == null) {
+    sizeBytes = (await statKuboDagSize(cid).catch(() => null)) ?? undefined;
+    if (record && sizeBytes != null) {
+      await rememberAutoPinRecord({
+        cid,
+        ensName: record.ensName,
+        sizeBytes,
+        pinnedAt: record.pinnedAt,
+      }).catch(() => undefined);
+    }
+  }
+
+  return {
+    cid,
+    state: pinType === "indirect" ? "indirect" : "pinned",
+    autoPinned: !!record,
+    pinType,
+    sizeBytes,
+    pinnedAt: record?.pinnedAt,
+    ensName: record?.ensName,
+  };
+}
+
+function notifyIpfsPinStatus(tabId: number | undefined, status: IpfsPinStatus) {
+  if (tabId == null) return;
+  const msg: IpfsPinStatusUpdatedMessage = {
+    type: "ipfs-pin-status-updated",
+    status,
+  };
+  chrome.tabs.sendMessage(tabId, msg).catch(() => {
+    // The target page may still be loading. The content script also asks for
+    // status on mount, so this push is only a fast path.
+  });
+}
+
+// Best-effort only: optional IPFS pinning must never delay or fail navigation.
+async function autoPinIpfsIfEnabled(
+  cid: string,
+  label: string,
+  tabId?: number,
+) {
+  const s = await getSettings().catch(() => null);
+  if (!s?.autoPinIpfsContent) return;
+  if (autoPinInflight.has(cid)) return;
+  autoPinInflight.add(cid);
+  notifyIpfsPinStatus(tabId, {
+    cid,
+    state: "pending",
+    autoPinned: false,
+    ensName: label,
+  });
+  try {
+    await pinCidToKubo(cid);
+    const sizeBytes = (await statKuboDagSize(cid).catch(() => null)) ?? undefined;
+    const pinnedAt = Date.now();
+    await rememberAutoPinRecord({
+      cid,
+      ensName: label,
+      sizeBytes,
+      pinnedAt,
+    }).catch(() => undefined);
+    console.log(`[dapp3] auto-pinned IPFS CID for ${label}: ${cid}`);
+    notifyIpfsPinStatus(tabId, {
+      cid,
+      state: "pinned",
+      autoPinned: true,
+      pinType: "recursive",
+      sizeBytes,
+      pinnedAt,
+      ensName: label,
+    });
+  } catch (e) {
+    console.warn(`[dapp3] IPFS auto-pin failed for ${label}`, e);
+    notifyIpfsPinStatus(tabId, {
+      cid,
+      state: "error",
+      autoPinned: false,
+      ensName: label,
+      error: describeError(e),
+    });
+  } finally {
+    autoPinInflight.delete(cid);
+  }
+}
 
 async function setW3EthBypassDnrTabs(tabIds: number[]) {
   if (tabIds.length === 0) {
@@ -358,11 +694,13 @@ async function resolveAndRedirect(
   hash: string,
   opts: { bypassHelios?: boolean } = {},
 ): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
-  // The "ensName" parameter is a generic resolution target — either a `.eth`
-  // name or a 0x contract address (from w3eth.io interception or homepage).
+  // The "ensName" parameter is a generic resolution target: a `.eth` name, a
+  // `.gwei` name, or a 0x contract address from ERC-4804 gateway/homepage input.
   const result = ADDRESS_RE.test(ensName)
     ? await resolveContractAddress(ensName, opts)
-    : await resolveEns(ensName, opts);
+    : GWEI_HOST_RE.test(ensName)
+      ? await resolveGwei(ensName, opts)
+      : await resolveEns(ensName, opts);
   if (!result.ok) {
     // Kubo CORS rejection is a one-time setup issue, not a per-site failure.
     // Don't navigate the tab — return the code so the interstitial can
@@ -376,7 +714,13 @@ async function resolveAndRedirect(
     });
     return { ok: false, error: result.error };
   }
-  const target = buildSubdomainUrl(result.kind, result.value, path || "/", search, hash);
+  const target = await buildConfiguredSubdomainUrl(
+    result.kind,
+    result.value,
+    path || "/",
+    search,
+    hash,
+  );
   const ctx: TabContext = {
     ensName: result.ensName,
     kind: result.kind,
@@ -386,6 +730,11 @@ async function resolveAndRedirect(
     contractAddress: result.contractAddress,
   };
   await chrome.storage.session.set({ [`tab:${tabId}`]: ctx });
+  if (result.kind === "ipfs" && !result.trustedDirectly) {
+    autoPinIpfsIfEnabled(result.value, result.ensName, tabId).catch((e) =>
+      console.warn("[dapp3] IPFS auto-pin threw", e),
+    );
+  }
   // Only cache Helios-verified resolutions. Bypass-trusted results carry a
   // weaker trust contract. Web3 entries are also cached here so the next
   // visit redirects synchronously from the ENS name to the same CID; the
@@ -442,7 +791,9 @@ async function refreshFromCache(
   try {
     result = ADDRESS_RE.test(ensName)
       ? await resolveContractAddress(ensName)
-      : await resolveEns(ensName);
+      : GWEI_HOST_RE.test(ensName)
+        ? await resolveGwei(ensName)
+        : await resolveEns(ensName);
   } catch (e) {
     console.warn("[dapp3] background refresh failed", e);
     return;
@@ -467,11 +818,17 @@ async function refreshFromCache(
     contractAddress: result.contractAddress,
   }).catch(() => undefined);
 
+  if (result.kind === "ipfs") {
+    autoPinIpfsIfEnabled(result.value, result.ensName, tabId).catch((e) =>
+      console.warn("[dapp3] IPFS auto-pin threw", e),
+    );
+  }
+
   if (result.value === cachedEntry.value) {
     // Same content. Done — just leave the timestamp bump above.
     return;
   }
-  const newGateway = buildSubdomainUrl(
+  const newGateway = await buildConfiguredSubdomainUrl(
     result.kind,
     result.value,
     path || "/",
@@ -511,23 +868,32 @@ installEthRedirectRule().then(
   (e) => console.warn("[dapp3] failed to install .eth DNR rule", e),
 );
 getSettings().then((s) => {
+  const gateway = getIpfsGatewayConfig(s);
   console.log(
     "[dapp3] booting with intercept toggles:",
     "ethLimo=",
     s.interceptEthLimo,
     "w3eth=",
     s.interceptW3Eth,
+    "gweiDomains=",
+    s.interceptGweiDomains,
   );
   syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
     console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
   );
-  syncW3EthRedirectRule(s.interceptW3Eth).then(
+  syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
+    console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
+  );
+  syncGweiDomainsRedirectRule(s.interceptGweiDomains).catch((e) =>
+    console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
+  );
+  syncWeb3GatewayRedirectRules(s.interceptW3Eth).then(
     () =>
       console.log(
-        "[dapp3] w3eth.io DNR rule",
+        "[dapp3] ERC-4804 gateway DNR rules",
         s.interceptW3Eth ? "installed" : "removed",
       ),
-    (e) => console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    (e) => console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
   );
   syncActionPopup(!!s.onboardingComplete);
 });
@@ -535,7 +901,7 @@ getSettings().then((s) => {
 // DNR handles the *.eth → interstitial redirect synchronously at the network
 // layer, beating Chrome's DNS-failure page. This listener pre-boots Helios so
 // it has a head start by the time the interstitial polls it. It also acts as
-// a JS-layer fallback for w3eth.io interception: the DNR rule for w3eth.io
+// a JS-layer fallback for ERC-4804 hosted-gateway interception: the DNR rule
 // has proven unreliable in practice (silently no-ops in some Chrome setups
 // even with proper host_permissions), so we always issue the tabs.update
 // redirect here too. If DNR happened to fire as well, both target the same
@@ -549,11 +915,13 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     return;
   }
   const isEth = ETH_HOST_RE.test(url.hostname);
+  const isGwei = GWEI_HOST_RE.test(url.hostname);
   const isW3Eth = W3ETH_HOST_RE.test(url.hostname);
-  if (!isEth && !isW3Eth) return;
+  const isW3Link = W3LINK_HOST_RE.test(url.hostname);
+  if (!isEth && !isGwei && !isW3Eth && !isW3Link) return;
   getOrStartHelios().catch(() => undefined);
   if (
-    isW3Eth &&
+    (isW3Eth || isW3Link) &&
     activeInterceptW3Eth !== false &&
     !w3EthBypassTabs.has(details.tabId)
   ) {
@@ -562,7 +930,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     chrome.tabs
       .update(details.tabId, { url: target })
       .catch((e) =>
-        console.warn("[dapp3] w3eth.io fallback redirect failed", e),
+        console.warn("[dapp3] ERC-4804 gateway fallback redirect failed", e),
       );
   }
 });
@@ -571,6 +939,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   await chrome.storage.session.remove(`tab:${tabId}`);
   await removeEthLimoBypassForTab(tabId).catch(() => undefined);
   await removeW3EthBypassForTab(tabId).catch(() => undefined);
+  await removeGweiDomainsBypassForTab(tabId).catch(() => undefined);
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -604,7 +973,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ctx: null });
         return;
       }
-      const parsed = parseGatewayHost(u.hostname);
+      const gateway = await getConfiguredGateway();
+      const parsed = parseGatewayHost(u.hostname, gateway.host);
       if (!parsed) {
         sendResponse({ ctx: null });
         return;
@@ -629,6 +999,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === "get-ipfs-pin-status" && typeof msg.cid === "string") {
+    getIpfsPinStatus(msg.cid).then(
+      (status) => sendResponse({ ok: true, status }),
+      (e) => sendResponse({ ok: false, error: describeError(e) }),
+    );
+    return true;
+  }
+
   if (msg?.type === "interstitial-cache-check") {
     const tabId = sender.tab?.id ?? msg.tabId;
     const name = String(msg.name ?? "").toLowerCase();
@@ -636,6 +1014,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const search = String(msg.search ?? "");
     const hash = String(msg.hash ?? "");
     if (tabId == null || !name) {
+      sendResponse({ cached: false });
+      return false;
+    }
+    // GNS records are cheap to refresh (single contenthash call) and changed
+    // records can otherwise strand users on stale, now-unavailable IPFS CIDs.
+    if (GWEI_HOST_RE.test(name)) {
       sendResponse({ cached: false });
       return false;
     }
@@ -677,7 +1061,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ cached: false });
         return;
       }
-      const gatewayUrl = buildSubdomainUrl(
+      const gatewayUrl = await buildConfiguredSubdomainUrl(
         hit.kind,
         hit.value,
         path || "/",
@@ -694,6 +1078,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         fromCache: true,
       };
       await chrome.storage.session.set({ [`tab:${tabId}`]: ctx });
+      if (hit.kind === "ipfs") {
+        autoPinIpfsIfEnabled(hit.value, hit.ensName, tabId).catch((e) =>
+          console.warn("[dapp3] IPFS auto-pin threw", e),
+        );
+      }
       sendResponse({ cached: true, gatewayUrl });
       // Kick off the background re-resolve. Helios was pre-warmed in
       // onBeforeNavigate; if it isn't synced yet the resolve will fail and
@@ -772,6 +1161,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // Install the per-tab ALLOW override *before* navigating so the DNR
         // engine sees it in place by the time the main_frame request fires.
         await addEthLimoBypassForTab(tabId);
+        await chrome.tabs.update(tabId, { url });
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (msg?.type === "open-on-gwei-domains" && typeof msg.url === "string") {
+    const tabId = sender.tab?.id;
+    const url = msg.url as string;
+    if (tabId == null) {
+      sendResponse({ ok: false, error: "no tabId" });
+      return false;
+    }
+    // Defense-in-depth, mirroring open-on-eth-limo: validate the URL shape at
+    // the SW boundary so a future caller bug can't be parlayed into arbitrary
+    // tabs.update navigation.
+    if (
+      !/^https:\/\/(?:[a-z0-9-]+\.)+gwei\.domains\.?(?::\d+)?(?:\/.*)?$/.test(url)
+    ) {
+      sendResponse({ ok: false, error: "invalid url" });
+      return false;
+    }
+    (async () => {
+      try {
+        // Install the per-tab ALLOW override *before* navigating so the DNR
+        // engine sees it in place by the time the main_frame request fires.
+        await addGweiDomainsBypassForTab(tabId);
         await chrome.tabs.update(tabId, { url });
         sendResponse({ ok: true });
       } catch (e) {
@@ -893,11 +1315,18 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
   getSettings().then((s) => {
+    const gateway = getIpfsGatewayConfig(s);
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
     );
-    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
-      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
+      console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
+    );
+    syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
+    );
+    syncGweiDomainsRedirectRule(s.interceptGweiDomains).catch((e) =>
+      console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
     );
     syncActionPopup(!!s.onboardingComplete);
   });
@@ -920,12 +1349,16 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 let activeRpc: string | undefined;
 let activeInterceptEthLimo: boolean | undefined;
 let activeInterceptW3Eth: boolean | undefined;
+let activeInterceptGweiDomains: boolean | undefined;
 let activeOnboardingComplete: boolean | undefined;
+let activeIpfsGatewayHost: string | undefined;
 getSettings().then((s) => {
   activeRpc = s.rpcUrl;
   activeInterceptEthLimo = s.interceptEthLimo;
   activeInterceptW3Eth = s.interceptW3Eth;
+  activeInterceptGweiDomains = s.interceptGweiDomains;
   activeOnboardingComplete = !!s.onboardingComplete;
+  activeIpfsGatewayHost = getIpfsGatewayConfig(s).host;
 });
 onSettingsChanged((s) => {
   const next = s.rpcUrl;
@@ -943,8 +1376,21 @@ onSettingsChanged((s) => {
   }
   if (s.interceptW3Eth !== activeInterceptW3Eth) {
     activeInterceptW3Eth = s.interceptW3Eth;
-    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
-      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
+    );
+  }
+  const gateway = getIpfsGatewayConfig(s);
+  if (gateway.host !== activeIpfsGatewayHost) {
+    activeIpfsGatewayHost = gateway.host;
+    syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
+      console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
+    );
+  }
+  if (s.interceptGweiDomains !== activeInterceptGweiDomains) {
+    activeInterceptGweiDomains = s.interceptGweiDomains;
+    syncGweiDomainsRedirectRule(s.interceptGweiDomains).catch((e) =>
+      console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
     );
   }
   const onboarded = !!s.onboardingComplete;
@@ -959,11 +1405,18 @@ chrome.runtime.onStartup.addListener(() => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
   getSettings().then((s) => {
+    const gateway = getIpfsGatewayConfig(s);
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
     );
-    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
-      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
+      console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
+    );
+    syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
+    );
+    syncGweiDomainsRedirectRule(s.interceptGweiDomains).catch((e) =>
+      console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
     );
     syncActionPopup(!!s.onboardingComplete);
   });

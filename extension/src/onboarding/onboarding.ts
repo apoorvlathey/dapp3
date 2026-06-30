@@ -1,6 +1,19 @@
 import { getSettings, setSettings } from "@/lib/settings";
 import type { HeliosStatus } from "@/lib/helios-bridge";
-import { probeKuboApi } from "@/lib/kubo";
+import {
+  invalidateKuboGatewayProbe,
+  probeKuboApi,
+  probeKuboGateway,
+} from "@/lib/kubo";
+import {
+  buildIpfsGatewayProbeUrl,
+  DEFAULT_IPFS_GATEWAY_HOST,
+  getIpfsGatewayConfig,
+  ipfsGatewayOriginPatterns,
+  normalizeIpfsGatewayPort,
+  parseIpfsGatewayHostInput,
+  type IpfsGatewayConfig,
+} from "@/lib/gateway";
 import { colorizeJson } from "@/lib/colorize-json";
 
 const DEFAULT_CONSENSUS_RPC = "https://eth-beacon-chain.drpc.org";
@@ -38,13 +51,83 @@ const ipfsDot = document.getElementById("ipfs-dot") as HTMLSpanElement;
 const ipfsText = document.getElementById("ipfs-status-text") as HTMLSpanElement;
 const ipfsNext = document.getElementById("ipfs-next") as HTMLButtonElement;
 const ipfsRecheck = document.getElementById("ipfs-recheck") as HTMLButtonElement;
+const ipfsGatewayForm = document.getElementById(
+  "ipfs-gateway-form",
+) as HTMLFormElement;
+const ipfsGatewayHostInput = document.getElementById(
+  "ipfs-gateway-host",
+) as HTMLInputElement;
+const ipfsGatewayPortInput = document.getElementById(
+  "ipfs-gateway-port",
+) as HTMLInputElement;
+const ipfsGatewaySaveBtn = document.getElementById(
+  "ipfs-gateway-save",
+) as HTMLButtonElement;
+const ipfsGatewayPreview = document.getElementById(
+  "ipfs-gateway-preview",
+) as HTMLElement;
+const ipfsGatewayStatus = document.getElementById(
+  "ipfs-gateway-status",
+) as HTMLElement;
 
 // Tracks the most recent IPFS probe result so the finish handler can persist
 // `interceptEthLimo` accurately. Defaults to false so a user who never makes
 // it through step 1 never has eth.limo / eth.link interception silently enabled.
 let lastIpfsOk = false;
 
+function renderIpfsGatewayPreview(gateway: IpfsGatewayConfig) {
+  ipfsGatewayPreview.textContent = `Probe URL: ${buildIpfsGatewayProbeUrl(gateway)}`;
+}
+
+function syncIpfsGatewayUI(settings: {
+  ipfsGatewayHost?: string;
+  ipfsGatewayPort?: number;
+}) {
+  const gateway = getIpfsGatewayConfig(settings);
+  ipfsGatewayHostInput.value = gateway.host;
+  ipfsGatewayPortInput.value = String(gateway.port);
+  renderIpfsGatewayPreview(gateway);
+}
+
+function readIpfsGatewayForm(): IpfsGatewayConfig | null {
+  const hostInput = parseIpfsGatewayHostInput(ipfsGatewayHostInput.value);
+  const port =
+    hostInput?.port ?? normalizeIpfsGatewayPort(ipfsGatewayPortInput.value);
+  if (!hostInput) {
+    ipfsGatewayStatus.textContent =
+      "Enter a gateway host, or an http:// gateway URL without a path.";
+    return null;
+  }
+  if (!port) {
+    ipfsGatewayStatus.textContent = "Enter a port from 1 to 65535.";
+    return null;
+  }
+  return { host: hostInput.host, port };
+}
+
+function updateIpfsGatewayPreviewFromInputs() {
+  const gateway = readIpfsGatewayForm();
+  if (!gateway) return;
+  ipfsGatewayStatus.textContent = "";
+  renderIpfsGatewayPreview(gateway);
+}
+
+async function ensureIpfsGatewayPermission(
+  gateway: IpfsGatewayConfig,
+): Promise<boolean> {
+  if (gateway.host === DEFAULT_IPFS_GATEWAY_HOST) return true;
+  const origins = ipfsGatewayOriginPatterns(gateway);
+  try {
+    const has = await chrome.permissions.contains({ origins });
+    if (has) return true;
+    return await chrome.permissions.request({ origins });
+  } catch {
+    return false;
+  }
+}
+
 async function probeIpfs(): Promise<boolean> {
+  const gateway = getIpfsGatewayConfig(await getSettings());
   const panel = panels[1];
   // Don't strip state-ok/state-bad here — doing so reveals the "No node yet?"
   // hint for the duration of the probe even when the last result was green,
@@ -55,20 +138,12 @@ async function probeIpfs(): Promise<boolean> {
   ipfsText.textContent = "Checking Kubo gateway…";
   // Probe the subdomain gateway with the empty-UnixFS CID. `no-cors` means we
   // cannot read the response, but a resolved promise proves the port answered
-  // — i.e. Kubo is up and serving subdomains on localhost:8080.
+  // — i.e. Kubo is up and serving subdomains on the configured gateway.
   try {
-    await fetch("http://bafkqaaa.ipfs.localhost:8080/", {
-      mode: "no-cors",
-      // The gateway serves this empty-UnixFS CID with
-      // `Cache-Control: public, max-age=31536000, immutable`, so once the user
-      // has hit it successfully Chrome will happily serve the cached response
-      // long after Kubo has stopped — making the probe look green while the
-      // port is actually dead. `no-store` forces a real network round-trip.
-      cache: "no-store",
-      signal: AbortSignal.timeout(2500),
-    });
+    const ok = await probeKuboGateway(gateway, { force: true });
+    if (!ok) throw new Error("gateway probe failed");
     ipfsDot.classList.add("ok");
-    ipfsText.textContent = "Connected at localhost:8080";
+    ipfsText.textContent = `Connected at ${gateway.host}:${gateway.port}`;
     ipfsNext.disabled = false;
     panel.classList.remove("state-bad");
     panel.classList.add("state-ok");
@@ -123,10 +198,10 @@ async function probeKuboApiAndRender() {
   wrap.id = "api-warning";
   wrap.className = "api-warning";
   wrap.innerHTML = `
-    <summary class="api-warning-title">Optional: enable <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a> dapps</summary>
+    <summary class="api-warning-title">Optional: enable <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a> dapps and IPFS auto-pinning</summary>
     <div class="api-warning-content">
       <p class="api-warning-body">
-        Run once, restart Kubo. Standard <code>.eth</code>/IPFS sites already work without this.
+        Run once, restart Kubo. Standard <code>.eth</code>/<code>.gwei</code>/IPFS sites already work without this; ERC-4804 dapps and optional IPFS auto-pinning need it.
       </p>
       <div class="cmd-block">
         <pre data-cmd="cmd"></pre>
@@ -217,6 +292,40 @@ async function probeKuboApiAndRender() {
 ipfsRecheck.addEventListener("click", async () => {
   const ok = await probeIpfs();
   if (ok) await probeKuboApiAndRender();
+});
+ipfsGatewayHostInput.addEventListener("input", updateIpfsGatewayPreviewFromInputs);
+ipfsGatewayPortInput.addEventListener("input", updateIpfsGatewayPreviewFromInputs);
+ipfsGatewayForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const gateway = readIpfsGatewayForm();
+  if (!gateway) return;
+  ipfsGatewaySaveBtn.disabled = true;
+  ipfsGatewayStatus.textContent = "Requesting gateway permission…";
+  const permitted = await ensureIpfsGatewayPermission(gateway);
+  if (!permitted) {
+    ipfsGatewayStatus.textContent =
+      "Permission denied — dapp3 can't reach that gateway host.";
+    ipfsGatewaySaveBtn.disabled = false;
+    return;
+  }
+
+  ipfsGatewayStatus.textContent = "Saving and checking gateway…";
+  await setSettings({
+    ipfsGatewayHost: gateway.host,
+    ipfsGatewayPort: gateway.port,
+  });
+  ipfsGatewayHostInput.value = gateway.host;
+  ipfsGatewayPortInput.value = String(gateway.port);
+  invalidateKuboGatewayProbe();
+  renderIpfsGatewayPreview(gateway);
+  const ok = await probeIpfs();
+  if (ok) {
+    await probeKuboApiAndRender();
+    ipfsGatewayStatus.textContent = "Saved. Gateway is reachable.";
+  } else {
+    ipfsGatewayStatus.textContent = "Saved, but the gateway did not answer.";
+  }
+  ipfsGatewaySaveBtn.disabled = false;
 });
 ipfsNext.addEventListener("click", () => showStep(2));
 
@@ -400,6 +509,7 @@ function renderHelios(status: HeliosStatus | null) {
           onboardingComplete: true,
           interceptEthLimo: lastIpfsOk,
           interceptW3Eth: lastIpfsOk,
+          interceptGweiDomains: lastIpfsOk,
         });
       }
       break;
@@ -447,6 +557,7 @@ finishBtn.addEventListener("click", async () => {
       onboardingComplete: true,
       interceptEthLimo: lastIpfsOk,
       interceptW3Eth: lastIpfsOk,
+      interceptGweiDomains: lastIpfsOk,
     });
   }
   const url = chrome.runtime.getURL("home.html");
@@ -466,9 +577,10 @@ syncBack.addEventListener("click", async () => {
 
 // --- Init ---
 (async () => {
+  const s = await getSettings();
+  syncIpfsGatewayUI(s);
   const gatewayOk = await probeIpfs();
   if (gatewayOk) await probeKuboApiAndRender();
-  const s = await getSettings();
   // Prefill the execution RPC. Default to eth.drpc.org for new users; if the
   // user already has a saved RPC (e.g. revisiting onboarding), keep it.
   rpcInput.value = s.rpcUrl ?? "https://eth.drpc.org";

@@ -1,9 +1,9 @@
 // Split a typed URL into {host, path}. `host` is everything up to and including
-// the first `.eth`; `path` is whatever follows. Callers use this to paint the
-// host portion bright and dim the path — mirroring how Chrome/Firefox render
-// their omnibox.
+// the first `.eth` / `.gwei`; `path` is whatever follows. Callers use this to
+// paint the host portion bright and dim the path — mirroring how Chrome/Firefox
+// render their omnibox.
 export function splitUrl(text: string): { host: string; path: string } {
-  const m = text.match(/^(.+?\.eth)(.*)$/i);
+  const m = text.match(/^(.+?\.(?:eth|gwei))(.*)$/i);
   if (!m) return { host: text, path: "" };
   return { host: m[1]!, path: m[2]! };
 }

@@ -100,6 +100,7 @@ pnpm typecheck      # tsc --noEmit only
 - `.eth` names only (no CCIP-read in v1).
 - No public IPFS fallback by default: the whole point is local-first.
 - ENS names without an IPFS contenthash fall back to **ERC-4804** (`resolveMode = "5219"` / `"manual"`): the onchain HTML is fetched via Helios-verified `eth_call`, pinned to local Kubo, and served at `<cid>.ipfs.localhost:8080`. One-time Kubo CORS setup required; the extension prompts inline. See [`PRD_ERC4804.md`](./PRD_ERC4804.md).
+- Optional IPFS auto-pinning can be enabled in Options. It asks Kubo to recursively pin resolved IPFS contenthash CIDs in the background, and uses the same one-time Kubo API CORS setup as ERC-4804.
 
 See [`PRD.md § Non-Goals`](./PRD.md#3-non-goals-v1) for the full list.
 

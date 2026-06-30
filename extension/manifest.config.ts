@@ -52,17 +52,27 @@ export default defineManifest({
     // "site can't be reached" page. DNR redirects need host access to the
     // target URL; without this, the rule silently no-ops.
     "*://*.eth/*",
+    // Same reason for `*.gwei` names (Gwei Name Service). The NameNFT contract
+    // is its own resolver, so resolution is a single Helios-verified eth_call;
+    // this host permission lets the DNR rule intercept `*.gwei` main_frame
+    // requests before Chrome's DNS probe fails.
+    "*://*.gwei/*",
     // Same reason for the optional `*.eth.limo` / `*.eth.link` interception
     // (toggle in settings). The DNR rule rewrites `<x>.eth.limo` /
     // `<x>.eth.link` → `<x>.eth`; without host access to the request URL the
     // redirect is a silent no-op.
     "*://*.eth.limo/*",
     "*://*.eth.link/*",
-    // Same reason for the optional `0x<addr>.w3eth.io` interception. The DNR
-    // rule rewrites those URLs into the interstitial with the contract address
+    // Same reason for optional `*.gwei.domains` interception. The DNR rule
+    // rewrites `<x>.gwei.domains` -> `<x>.gwei`; without host access it silently
+    // no-ops.
+    "*://*.gwei.domains/*",
+    // Same reason for optional ERC-4804 hosted-gateway interception. The DNR
+    // rules rewrite those URLs into the interstitial with the contract address
     // stashed in the fragment; without host access the redirect is a silent
-    // no-op and the public w3eth.io gateway wins the request.
+    // no-op and the public gateway wins the request.
     "*://*.w3eth.io/*",
+    "*://*.w3link.io/*",
   ],
   optional_host_permissions: ["https://*/*", "http://*/*"],
   content_security_policy: {

@@ -16,7 +16,7 @@
         </span>
         <h1><a href="http://dapp3.eth.link" target="_blank" rel="noopener">dapp3.eth</a></h1>
       </div>
-      <p class="sub">Your local-first ENS gateway.</p>
+      <p class="sub">Your local-first ENS &amp; GNS gateway.</p>
 
       <section>
         <h2>Ethereum RPC endpoint</h2>
@@ -134,12 +134,89 @@
         <datalist id="beacon-endpoints"></datalist>
       </section>
 
+      <section class="gateway-section">
+        <details class="gateway-details" open>
+          <summary class="gateway-summary">
+            <span class="gateway-summary-title">
+              <span>Gateway URL</span>
+              <span class="gateway-optional">(optional)</span>
+            </span>
+          </summary>
+          <p class="hint gateway-lede">
+            Override the host or port if your Kubo subdomain gateway isn't on
+            the default <code>localhost:8080</code>.
+          </p>
+          <div class="gateway-preview-row" aria-live="polite">
+            <span class="meta-k">Preview</span>
+            <code id="ipfs-gateway-preview" class="gateway-preview-code"></code>
+          </div>
+          <form id="ipfs-gateway-form" class="gateway-form">
+            <div class="gateway-fields">
+              <label class="gateway-host-field">
+                <span class="meta-k">Host</span>
+                <input
+                  type="text"
+                  id="ipfs-gateway-host"
+                  placeholder="localhost or http://localhost:8080"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </label>
+              <label class="gateway-port-field">
+                <span class="meta-k">Port</span>
+                <input
+                  type="number"
+                  id="ipfs-gateway-port"
+                  min="1"
+                  max="65535"
+                  step="1"
+                  inputmode="numeric"
+                />
+              </label>
+            </div>
+            <p class="hint gateway-note">
+              The identity banner is still injected only on
+              <code>*.ipfs.localhost</code> and <code>*.ipns.localhost</code>.
+              Routing uses this custom gateway either way.
+            </p>
+            <p class="hint" id="ipfs-gateway-status"></p>
+            <div class="gateway-actions">
+              <button type="button" class="secondary" id="ipfs-gateway-reset">
+                Reset
+              </button>
+              <button type="submit" id="ipfs-gateway-apply">Save</button>
+            </div>
+          </form>
+        </details>
+      </section>
+
+      <section>
+        <h2>IPFS content pinning</h2>
+        <p class="hint">
+          Optional recursive pins for ENS names that resolve to IPFS
+          contenthashes. Requires the Kubo API at <code>127.0.0.1:5001</code>
+          to allow this extension.
+        </p>
+        <label class="toggle-row" for="auto-pin-ipfs">
+          <input type="checkbox" id="auto-pin-ipfs" />
+          <span class="toggle-text">
+            <span class="toggle-title">Auto-pin resolved IPFS CIDs</span>
+            <span class="toggle-sub">
+              Pins each resolved IPFS CID in the background after navigation.
+              IPNS is not pinned by this toggle; ERC-4804 already uses its own
+              managed pins.
+            </span>
+          </span>
+        </label>
+        <p class="hint" id="auto-pin-ipfs-status"></p>
+      </section>
+
       <section id="web3-section">
         <h2>Web3:// dapps (<a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a>)</h2>
         <p class="hint">
           Onchain HTML pinned to your local Kubo node. Each entry was
           fetched via Helios-verified <code>eth_call</code> and is served
-          from <code>&lt;cid&gt;.ipfs.localhost:8080</code>. Evict an entry
+          from your configured IPFS gateway. Evict an entry
           to drop the pin and free Kubo storage.
         </p>
 
@@ -177,7 +254,7 @@
       <section>
         <h2>Gateway interception</h2>
         <p class="hint">
-          Rewrites public ENS gateways to the underlying name/address and
+          Rewrites public ENS / GNS gateways to the underlying name/address and
           resolves locally. Turn off to fall back to the public gateways.
         </p>
         <label class="toggle-row" for="intercept-ethlimo">
@@ -193,11 +270,22 @@
         <label class="toggle-row" for="intercept-w3eth">
           <input type="checkbox" id="intercept-w3eth" />
           <span class="toggle-text">
-            <span class="toggle-title">Intercept w3eth.io links</span>
+            <span class="toggle-title">Intercept ERC-4804 gateway links</span>
             <span class="toggle-sub" id="intercept-w3eth-sub">
-              Rewrites <code>0x&lt;addr&gt;.w3eth.io</code> to a local
+              Rewrites <code>0x&lt;addr&gt;.w3eth.io</code> and
+              <code>0x&lt;addr&gt;.1.w3link.io</code> to a local
               <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a>
               resolution. Requires a local IPFS node.
+            </span>
+          </span>
+        </label>
+        <label class="toggle-row" for="intercept-gweidomains">
+          <input type="checkbox" id="intercept-gweidomains" />
+          <span class="toggle-text">
+            <span class="toggle-title">Intercept gwei.domains links</span>
+            <span class="toggle-sub" id="intercept-gweidomains-sub">
+              Rewrites <code>*.gwei.domains</code> to the underlying
+              <code>.gwei</code> name. Requires a local IPFS node.
             </span>
           </span>
         </label>

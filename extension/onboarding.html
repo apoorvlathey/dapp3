@@ -16,8 +16,8 @@
         </span>
         <h1><a href="http://dapp3.eth.link" target="_blank" rel="noopener">dapp3.eth</a></h1>
         <p class="sub">
-          Add <code>.eth</code> domain support to your browser, verified
-          locally!
+          Add <code>.eth</code> (ENS) and <code>.gwei</code> (GNS) domain
+          support to your browser, verified locally!
         </p>
       </header>
 
@@ -42,8 +42,8 @@
       <section class="step-panel" data-step="1">
         <h2>Connect your IPFS node</h2>
         <p class="lede">
-          dapp3 serves <code>.eth</code> sites from a local IPFS node, nothing
-          touches a public gateway.
+          dapp3 serves <code>.eth</code> (ENS) and <code>.gwei</code> (GNS) sites
+          from a local IPFS node, nothing touches a public gateway.
         </p>
         <div class="statusbox" id="ipfs-statusbox">
           <span class="dot" id="ipfs-dot"></span>
@@ -63,8 +63,10 @@
           <summary>Installed but not connecting?</summary>
           <ul>
             <li>
-              Test: <code>curl -I http://bafkqaaa.ipfs.localhost:8080/</code>
-              should return <code>200</code>.
+              Default test:
+              <code>curl -I http://bafkqaaa.ipfs.localhost:8080/</code>
+              should return <code>200</code>. For a custom gateway, use the
+              probe URL shown below.
             </li>
             <li>
               Getting <code>301</code>? Enable the subdomain gateway in IPFS
@@ -73,6 +75,37 @@
               in <code>~/.ipfs/config</code>.
             </li>
           </ul>
+        </details>
+        <details class="when-not-ok">
+          <summary>Use a custom gateway</summary>
+          <form id="ipfs-gateway-form" class="gateway-form">
+            <label>
+              <span>Gateway host</span>
+              <input
+                type="text"
+                id="ipfs-gateway-host"
+                placeholder="localhost or http://localhost:8080"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <label>
+              <span>Gateway port</span>
+              <input
+                type="number"
+                id="ipfs-gateway-port"
+                min="1"
+                max="65535"
+                step="1"
+                inputmode="numeric"
+              />
+            </label>
+            <p class="hint" id="ipfs-gateway-preview"></p>
+            <p class="hint" id="ipfs-gateway-status"></p>
+            <button id="ipfs-gateway-save" type="submit" class="ghost">
+              Save gateway
+            </button>
+          </form>
         </details>
         <footer class="panel-footer">
           <button id="ipfs-recheck" type="button" class="ghost">

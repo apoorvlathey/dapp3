@@ -1,4 +1,18 @@
 import { getSettings, setSettings, onSettingsChanged } from "@/lib/settings";
+import {
+  invalidateKuboGatewayProbe,
+  probeKuboApi,
+  probeKuboGateway,
+} from "@/lib/kubo";
+import {
+  DEFAULT_IPFS_GATEWAY_HOST,
+  DEFAULT_IPFS_GATEWAY_PORT,
+  getIpfsGatewayConfig,
+  ipfsGatewayOriginPatterns,
+  normalizeIpfsGatewayPort,
+  parseIpfsGatewayHostInput,
+  type IpfsGatewayConfig,
+} from "@/lib/gateway";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import {
   DEFAULT_WEB3_ENTRY_BUDGET,
@@ -48,6 +62,41 @@ const interceptToggle = document.getElementById(
 const interceptW3EthToggle = document.getElementById(
   "intercept-w3eth",
 ) as HTMLInputElement;
+const interceptGweiDomainsToggle = document.getElementById(
+  "intercept-gweidomains",
+) as HTMLInputElement;
+const autoPinIpfsToggle = document.getElementById(
+  "auto-pin-ipfs",
+) as HTMLInputElement;
+const autoPinIpfsStatus = document.getElementById(
+  "auto-pin-ipfs-status",
+) as HTMLElement;
+const ipfsGatewayForm = document.getElementById(
+  "ipfs-gateway-form",
+) as HTMLFormElement;
+const ipfsGatewayHostInput = document.getElementById(
+  "ipfs-gateway-host",
+) as HTMLInputElement;
+const ipfsGatewayPortInput = document.getElementById(
+  "ipfs-gateway-port",
+) as HTMLInputElement;
+const ipfsGatewayApplyBtn = document.getElementById(
+  "ipfs-gateway-apply",
+) as HTMLButtonElement;
+const ipfsGatewayResetBtn = document.getElementById(
+  "ipfs-gateway-reset",
+) as HTMLButtonElement;
+const ipfsGatewayPreview = document.getElementById(
+  "ipfs-gateway-preview",
+) as HTMLElement;
+const ipfsGatewayStatus = document.getElementById(
+  "ipfs-gateway-status",
+) as HTMLElement;
+const DEFAULT_IPFS_GATEWAY = {
+  host: DEFAULT_IPFS_GATEWAY_HOST,
+  port: DEFAULT_IPFS_GATEWAY_PORT,
+};
+let savedIpfsGateway: IpfsGatewayConfig = DEFAULT_IPFS_GATEWAY;
 
 const verifierForm = document.getElementById(
   "verifier-form",
@@ -407,6 +456,144 @@ function syncCheckpointUI(stored: string | undefined) {
   checkpointStatus.className = "hint";
 }
 
+function kuboApiSetupCommand(): string {
+  return `ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["chrome-extension://${chrome.runtime.id}"]' && ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST"]'`;
+}
+
+function renderIpfsGatewayPreview(gateway: IpfsGatewayConfig) {
+  ipfsGatewayPreview.textContent = `http://<cid>.ipfs.${gateway.host}:${gateway.port}/`;
+}
+
+function gatewaysEqual(a: IpfsGatewayConfig, b: IpfsGatewayConfig): boolean {
+  return a.host === b.host && a.port === b.port;
+}
+
+function syncIpfsGatewayActions(gateway: IpfsGatewayConfig | null) {
+  ipfsGatewayApplyBtn.disabled =
+    !gateway || gatewaysEqual(gateway, savedIpfsGateway);
+  ipfsGatewayResetBtn.disabled =
+    gatewaysEqual(savedIpfsGateway, DEFAULT_IPFS_GATEWAY) &&
+    !!gateway &&
+    gatewaysEqual(gateway, DEFAULT_IPFS_GATEWAY);
+}
+
+async function ensureIpfsGatewayPermission(
+  gateway: IpfsGatewayConfig,
+): Promise<boolean> {
+  if (gateway.host === DEFAULT_IPFS_GATEWAY_HOST) return true;
+  const origins = ipfsGatewayOriginPatterns(gateway);
+  try {
+    const has = await chrome.permissions.contains({ origins });
+    if (has) return true;
+    return await chrome.permissions.request({ origins });
+  } catch {
+    return false;
+  }
+}
+
+function syncIpfsGatewayUI(settings: {
+  ipfsGatewayHost?: string;
+  ipfsGatewayPort?: number;
+}) {
+  const gateway = getIpfsGatewayConfig(settings);
+  savedIpfsGateway = gateway;
+  ipfsGatewayHostInput.value = gateway.host;
+  ipfsGatewayPortInput.value = String(gateway.port);
+  renderIpfsGatewayPreview(gateway);
+  syncIpfsGatewayActions(gateway);
+}
+
+function readIpfsGatewayForm(
+  opts: { report?: boolean } = {},
+): IpfsGatewayConfig | null {
+  const report = opts.report !== false;
+  const hostInput = parseIpfsGatewayHostInput(ipfsGatewayHostInput.value);
+  const port =
+    hostInput?.port ?? normalizeIpfsGatewayPort(ipfsGatewayPortInput.value);
+  if (!hostInput) {
+    if (report) {
+      ipfsGatewayStatus.textContent =
+        "Enter a gateway host, or an http:// gateway URL without a path.";
+      ipfsGatewayStatus.className = "hint bad";
+    }
+    return null;
+  }
+  if (!port) {
+    if (report) {
+      ipfsGatewayStatus.textContent = "Enter a port from 1 to 65535.";
+      ipfsGatewayStatus.className = "hint bad";
+    }
+    return null;
+  }
+  return { host: hostInput.host, port };
+}
+
+async function saveIpfsGateway(gateway: IpfsGatewayConfig) {
+  ipfsGatewayApplyBtn.disabled = true;
+  ipfsGatewayResetBtn.disabled = true;
+  ipfsGatewayStatus.className = "hint";
+  ipfsGatewayStatus.textContent = "Requesting gateway permission…";
+  const permitted = await ensureIpfsGatewayPermission(gateway);
+  if (!permitted) {
+    ipfsGatewayStatus.className = "hint bad";
+    ipfsGatewayStatus.textContent =
+      "Permission denied — dapp3 can't reach that gateway host.";
+    syncIpfsGatewayActions(gateway);
+    return;
+  }
+
+  ipfsGatewayStatus.textContent = "Saving and checking gateway…";
+  await setSettings({
+    ipfsGatewayHost: gateway.host,
+    ipfsGatewayPort: gateway.port,
+  });
+  ipfsGatewayHostInput.value = gateway.host;
+  ipfsGatewayPortInput.value = String(gateway.port);
+  savedIpfsGateway = gateway;
+  invalidateKuboGatewayProbe();
+  const ok = await probeKuboGateway(gateway, { force: true });
+  ipfsGatewayStatus.className = ok ? "hint" : "hint bad";
+  ipfsGatewayStatus.textContent = ok
+    ? `Saved. Kubo gateway is reachable at ${gateway.host}:${gateway.port}.`
+    : `Saved, but the gateway did not answer at ${gateway.host}:${gateway.port}.`;
+  renderIpfsGatewayPreview(gateway);
+  syncIpfsGatewayActions(gateway);
+}
+
+function updateIpfsGatewayPreviewFromInputs() {
+  const gateway = readIpfsGatewayForm({ report: false });
+  if (!gateway) {
+    syncIpfsGatewayActions(null);
+    return;
+  }
+  ipfsGatewayStatus.textContent = "";
+  ipfsGatewayStatus.className = "hint";
+  renderIpfsGatewayPreview(gateway);
+  syncIpfsGatewayActions(gateway);
+}
+
+ipfsGatewayHostInput.addEventListener("input", updateIpfsGatewayPreviewFromInputs);
+ipfsGatewayPortInput.addEventListener("input", updateIpfsGatewayPreviewFromInputs);
+
+ipfsGatewayForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const gateway = readIpfsGatewayForm();
+  if (!gateway) return;
+  renderIpfsGatewayPreview(gateway);
+  await saveIpfsGateway(gateway);
+});
+
+ipfsGatewayResetBtn.addEventListener("click", async () => {
+  const gateway = {
+    host: DEFAULT_IPFS_GATEWAY_HOST,
+    port: DEFAULT_IPFS_GATEWAY_PORT,
+  };
+  ipfsGatewayHostInput.value = gateway.host;
+  ipfsGatewayPortInput.value = String(gateway.port);
+  renderIpfsGatewayPreview(gateway);
+  await saveIpfsGateway(gateway);
+});
+
 function normalizeCheckpoint(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -540,8 +727,16 @@ onSettingsChanged((s) => {
   if (document.activeElement !== checkpointInput) {
     syncCheckpointUI(s.checkpoint);
   }
+  if (
+    document.activeElement !== ipfsGatewayHostInput &&
+    document.activeElement !== ipfsGatewayPortInput
+  ) {
+    syncIpfsGatewayUI(s);
+  }
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
+  interceptGweiDomainsToggle.checked = s.interceptGweiDomains;
+  autoPinIpfsToggle.checked = s.autoPinIpfsContent;
   if (
     document.activeElement !== web3SizeCapInput &&
     document.activeElement !== web3EntryBudgetInput
@@ -556,6 +751,40 @@ interceptToggle.addEventListener("change", async () => {
 
 interceptW3EthToggle.addEventListener("change", async () => {
   await setSettings({ interceptW3Eth: interceptW3EthToggle.checked });
+});
+
+interceptGweiDomainsToggle.addEventListener("change", async () => {
+  await setSettings({ interceptGweiDomains: interceptGweiDomainsToggle.checked });
+});
+
+autoPinIpfsToggle.addEventListener("change", async () => {
+  autoPinIpfsToggle.disabled = true;
+  autoPinIpfsStatus.className = "hint";
+
+  if (!autoPinIpfsToggle.checked) {
+    await setSettings({ autoPinIpfsContent: false });
+    autoPinIpfsStatus.textContent = "Disabled. IPFS contenthashes will only be gateway-cached by Kubo.";
+    autoPinIpfsToggle.disabled = false;
+    return;
+  }
+
+  autoPinIpfsStatus.textContent = "Checking Kubo API access…";
+  const probe = await probeKuboApi();
+  if (!probe.ok) {
+    autoPinIpfsToggle.checked = false;
+    autoPinIpfsStatus.className = "hint bad";
+    autoPinIpfsStatus.textContent =
+      probe.kind.kind === "cors"
+        ? `Kubo is rejecting this extension. Run once, restart Kubo, then enable again: ${kuboApiSetupCommand()}`
+        : `Kubo API is not reachable at 127.0.0.1:5001: ${probe.kind.kind === "unreachable" ? probe.kind.cause : probe.kind.body}`;
+    autoPinIpfsToggle.disabled = false;
+    return;
+  }
+
+  await setSettings({ autoPinIpfsContent: true });
+  autoPinIpfsStatus.textContent =
+    "Enabled. New IPFS contenthash CIDs will be pinned in the background.";
+  autoPinIpfsToggle.disabled = false;
 });
 
 // ---------- Web3:// dapps section ----------
@@ -712,8 +941,11 @@ function renderWeb3List(entries: Web3CacheEntry[]) {
   syncConsensusUI(s.consensusRpc);
   renderVerifierList(s.consensusVerifiers ?? []);
   syncCheckpointUI(s.checkpoint);
+  syncIpfsGatewayUI(s);
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
+  interceptGweiDomainsToggle.checked = s.interceptGweiDomains;
+  autoPinIpfsToggle.checked = s.autoPinIpfsContent;
   syncWeb3Budgets(s);
   loadWeb3List();
   pollHelios();

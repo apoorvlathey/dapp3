@@ -1,24 +1,80 @@
-// Kubo HTTP API helpers. The gateway on :8080 is what serves content; the
-// API on :5001 is what we use to *write* content (pinning ERC-4804 bodies
-// for serving). Kubo's API rejects browser-originated requests whose Origin
-// isn't on its allowlist (CSRF / DNS-rebinding defense). Users who want
-// ERC-4804 support need to allow the extension origin in Kubo's config:
+// Kubo gateway probe + HTTP API helpers. The gateway is what serves content;
+// the API on :5001 is what we use to *write* content (pinning ERC-4804 bodies
+// for serving) and, optionally, to pin resolved IPFS contenthash CIDs. Kubo's
+// API rejects browser-originated requests whose Origin isn't on its allowlist
+// (CSRF / DNS-rebinding defense). Users who want ERC-4804 support or IPFS
+// auto-pinning need to allow the extension origin in Kubo's config:
 //
 //   ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin \
-//     '["chrome-extension://<EXTENSION_ID>", "http://localhost:8080"]'
+//     '["chrome-extension://<EXTENSION_ID>"]'
 //   ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods \
 //     '["POST"]'
 //
 // On a CORS rejection we surface KuboPinError so the caller can map to the
 // extension's web3-pin-failed error page with a concrete fix message.
 
+import {
+  buildIpfsGatewayProbeUrl,
+  DEFAULT_IPFS_GATEWAY,
+  type IpfsGatewayConfig,
+} from "./gateway";
+
+const KUBO_GATEWAY_PROBE_TIMEOUT_MS = 2500;
+const KUBO_GATEWAY_MEMO_MS = 30_000;
 const KUBO_API_BASE = "http://127.0.0.1:5001";
+
+type GatewayProbeMemo = {
+  reachable: boolean;
+  checkedAt: number;
+  probeUrl: string;
+};
+
+let gatewayProbeMemo: GatewayProbeMemo | null = null;
+
+export async function probeKuboGateway(
+  gateway: IpfsGatewayConfig = DEFAULT_IPFS_GATEWAY,
+  opts: { force?: boolean; timeoutMs?: number } = {},
+): Promise<boolean> {
+  const probeUrl = buildIpfsGatewayProbeUrl(gateway);
+  if (
+    !opts.force &&
+    gatewayProbeMemo &&
+    gatewayProbeMemo.probeUrl === probeUrl &&
+    Date.now() - gatewayProbeMemo.checkedAt < KUBO_GATEWAY_MEMO_MS
+  ) {
+    return gatewayProbeMemo.reachable;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    opts.timeoutMs ?? KUBO_GATEWAY_PROBE_TIMEOUT_MS,
+  );
+  try {
+    await fetch(probeUrl, {
+      mode: "no-cors",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    gatewayProbeMemo = { reachable: true, checkedAt: Date.now(), probeUrl };
+    return true;
+  } catch {
+    gatewayProbeMemo = { reachable: false, checkedAt: Date.now(), probeUrl };
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function invalidateKuboGatewayProbe(): void {
+  gatewayProbeMemo = null;
+}
 
 export type KuboPinErrorKind =
   | { kind: "unreachable"; cause: string }
   | { kind: "cors"; cause: string }
-  | { kind: "http"; status: number; body: string }
-  | { kind: "parse"; body: string };
+  | { kind: "http"; status: number; body: string; op?: string }
+  | { kind: "parse"; body: string; op?: string };
 
 export class KuboPinError extends Error {
   constructor(public detail: KuboPinErrorKind) {
@@ -33,9 +89,9 @@ export function describeKuboPinError(d: KuboPinErrorKind): string {
     case "cors":
       return `Kubo rejected the request (CORS / Origin not allowed): ${d.cause}. Allow the extension origin in Kubo's API.HTTPHeaders.Access-Control-Allow-Origin.`;
     case "http":
-      return `Kubo /api/v0/add returned ${d.status}: ${d.body}`;
+      return `Kubo ${d.op ?? "/api/v0/add"} returned ${d.status}: ${d.body}`;
     case "parse":
-      return `Kubo /api/v0/add returned an unparseable response: ${d.body}`;
+      return `Kubo ${d.op ?? "/api/v0/add"} returned an unparseable response: ${d.body}`;
   }
 }
 
@@ -43,6 +99,8 @@ export type KuboAddResult = {
   cid: string;
   size: number;
 };
+
+export type KuboPinType = "recursive" | "direct" | "indirect" | "internal";
 
 export type KuboProbeResult =
   | { ok: true; version?: string }
@@ -161,6 +219,136 @@ export async function addToKubo(
     cid: parsed.Hash,
     size: Number(parsed.Size ?? body.byteLength),
   };
+}
+
+export async function pinCidToKubo(cid: string): Promise<void> {
+  const params = new URLSearchParams({
+    arg: cid,
+    recursive: "true",
+  });
+  const url = `${KUBO_API_BASE}/api/v0/pin/add?${params.toString()}`;
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, { method: "POST" });
+  } catch (e) {
+    const cause = e instanceof Error ? e.message : String(e);
+    if (/cors|origin/i.test(cause)) {
+      throw new KuboPinError({ kind: "cors", cause });
+    }
+    throw new KuboPinError({ kind: "unreachable", cause });
+  }
+
+  if (resp.ok) return;
+  const text = await resp.text().catch(() => "");
+  if (resp.status === 403 || resp.status === 405) {
+    throw new KuboPinError({ kind: "cors", cause: text || `HTTP ${resp.status}` });
+  }
+  throw new KuboPinError({
+    kind: "http",
+    op: "/api/v0/pin/add",
+    status: resp.status,
+    body: text.slice(0, 512),
+  });
+}
+
+export async function getKuboPinType(cid: string): Promise<KuboPinType | null> {
+  const params = new URLSearchParams({
+    arg: cid,
+    type: "all",
+  });
+  const url = `${KUBO_API_BASE}/api/v0/pin/ls?${params.toString()}`;
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, { method: "POST" });
+  } catch (e) {
+    const cause = e instanceof Error ? e.message : String(e);
+    if (/cors|origin/i.test(cause)) {
+      throw new KuboPinError({ kind: "cors", cause });
+    }
+    throw new KuboPinError({ kind: "unreachable", cause });
+  }
+
+  const text = await resp.text().catch(() => "");
+  if (!resp.ok) {
+    if (/not pinned|is not pinned|not found/i.test(text)) return null;
+    if (resp.status === 403 || resp.status === 405) {
+      throw new KuboPinError({ kind: "cors", cause: text || `HTTP ${resp.status}` });
+    }
+    throw new KuboPinError({
+      kind: "http",
+      op: "/api/v0/pin/ls",
+      status: resp.status,
+      body: text.slice(0, 512),
+    });
+  }
+
+  let parsed: { Keys?: Record<string, { Type?: string }> };
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new KuboPinError({
+      kind: "parse",
+      op: "/api/v0/pin/ls",
+      body: text.slice(0, 512),
+    });
+  }
+  const entry = parsed.Keys?.[cid] ?? Object.values(parsed.Keys ?? {})[0];
+  const type = entry?.Type;
+  return type === "recursive" ||
+    type === "direct" ||
+    type === "indirect" ||
+    type === "internal"
+    ? type
+    : null;
+}
+
+export async function statKuboDagSize(cid: string): Promise<number | null> {
+  const params = new URLSearchParams({
+    arg: cid,
+    progress: "false",
+  });
+  const url = `${KUBO_API_BASE}/api/v0/dag/stat?${params.toString()}`;
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, { method: "POST" });
+  } catch (e) {
+    const cause = e instanceof Error ? e.message : String(e);
+    if (/cors|origin/i.test(cause)) {
+      throw new KuboPinError({ kind: "cors", cause });
+    }
+    throw new KuboPinError({ kind: "unreachable", cause });
+  }
+
+  const text = await resp.text().catch(() => "");
+  if (!resp.ok) {
+    if (resp.status === 403 || resp.status === 405) {
+      throw new KuboPinError({ kind: "cors", cause: text || `HTTP ${resp.status}` });
+    }
+    throw new KuboPinError({
+      kind: "http",
+      op: "/api/v0/dag/stat",
+      status: resp.status,
+      body: text.slice(0, 512),
+    });
+  }
+
+  let parsed: { TotalSize?: number | string; Size?: number | string };
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new KuboPinError({
+      kind: "parse",
+      op: "/api/v0/dag/stat",
+      body: text.slice(0, 512),
+    });
+  }
+  const raw = parsed.TotalSize ?? parsed.Size;
+  if (raw == null) return null;
+  const size = Number(raw);
+  return Number.isFinite(size) ? size : null;
 }
 
 // Remove a pin and optionally clear an MFS path. Used for LRU eviction of

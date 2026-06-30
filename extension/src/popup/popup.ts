@@ -1,4 +1,6 @@
 import type { HeliosStatus } from "@/lib/helios-bridge";
+import { getIpfsGatewayConfig } from "@/lib/gateway";
+import { probeKuboGateway } from "@/lib/kubo";
 import { getSettings } from "@/lib/settings";
 
 const ipfsEl = document.getElementById("ipfs-status") as HTMLSpanElement;
@@ -23,15 +25,10 @@ function setStatus(el: HTMLSpanElement, kind: "ok" | "bad" | "idle") {
 }
 
 async function probeIpfs() {
+  const gateway = getIpfsGatewayConfig(await getSettings());
   try {
-    await fetch("http://bafkqaaa.ipfs.localhost:8080/", {
-      mode: "no-cors",
-      // Gateway returns `Cache-Control: immutable, max-age=1y` for this CID,
-      // so without `no-store` Chrome can serve a stale success long after
-      // Kubo has been stopped.
-      cache: "no-store",
-      signal: AbortSignal.timeout(1500),
-    });
+    const ok = await probeKuboGateway(gateway, { force: true, timeoutMs: 1500 });
+    if (!ok) throw new Error("gateway probe failed");
     ipfsEl.textContent = "online";
     setStatus(ipfsEl, "ok");
     setDot(ipfsDot, "ok");
