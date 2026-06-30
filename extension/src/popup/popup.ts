@@ -14,13 +14,18 @@ const heliosErrorDetail = document.getElementById(
   "helios-error-detail",
 ) as HTMLPreElement;
 
-function setDot(dot: HTMLSpanElement, kind: "ok" | "bad" | "syncing" | "idle") {
-  dot.classList.remove("ok", "bad", "syncing");
+let trustRpcDirectly = false;
+
+function setDot(
+  dot: HTMLSpanElement,
+  kind: "ok" | "bad" | "syncing" | "caution" | "idle",
+) {
+  dot.classList.remove("ok", "bad", "syncing", "caution");
   if (kind !== "idle") dot.classList.add(kind);
 }
 
-function setStatus(el: HTMLSpanElement, kind: "ok" | "bad" | "idle") {
-  el.classList.remove("ok", "bad");
+function setStatus(el: HTMLSpanElement, kind: "ok" | "bad" | "caution" | "idle") {
+  el.classList.remove("ok", "bad", "caution");
   if (kind !== "idle") el.classList.add(kind);
 }
 
@@ -50,6 +55,13 @@ function clearHeliosError() {
 
 function renderHelios(status: HeliosStatus | null) {
   setStatus(heliosEl, "idle");
+  if (trustRpcDirectly) {
+    heliosEl.textContent = "RPC-trusted";
+    setStatus(heliosEl, "caution");
+    setDot(heliosDot, "caution");
+    clearHeliosError();
+    return;
+  }
   if (!status) {
     heliosEl.textContent = "unknown";
     setDot(heliosDot, "idle");
@@ -157,6 +169,11 @@ async function bootPopup() {
     return;
   }
   probeIpfs();
+  trustRpcDirectly = s.trustRpcDirectly;
+  if (trustRpcDirectly) {
+    renderHelios(null);
+    return;
+  }
   pollHelios();
 }
 

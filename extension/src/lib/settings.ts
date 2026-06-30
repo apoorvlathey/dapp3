@@ -11,6 +11,10 @@ export type Settings = {
   consensusVerifiers?: string[];
   checkpoint?: string;
   onboardingComplete?: boolean;
+  // When true, resolve onchain reads through the configured execution RPC
+  // directly instead of Helios. This is a weaker trust mode: the RPC provider is
+  // trusted for ENS/GNS/ERC-4804 state. Default false.
+  trustRpcDirectly: boolean;
   // Intercept `*.eth.limo` and `*.eth.link` navigations and route them through
   // local resolution (Helios + Kubo) instead of the public gateways. Default
   // true; gets forced false at onboarding if Kubo isn't reachable, since
@@ -54,6 +58,7 @@ const KEY = "settings";
 
 const DEFAULT: Settings = {
   onboardingComplete: false,
+  trustRpcDirectly: false,
   interceptEthLimo: true,
   interceptW3Eth: true,
   ipfsGatewayHost: "localhost",

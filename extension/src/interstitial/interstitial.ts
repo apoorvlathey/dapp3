@@ -398,6 +398,10 @@ async function tryCache(): Promise<boolean> {
       location.replace(resp.gatewayUrl);
       return true;
     }
+    if (resp?.bypassHelios) {
+      await triggerResolve(true);
+      return true;
+    }
   } catch {
     // SW unavailable or message failed — fall back to the Helios poll path.
   }

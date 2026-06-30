@@ -24,6 +24,10 @@ export type Web3CacheEntry = {
   cid: string;
   bodyLen: number;
   lastAccess: number;
+  // True when the entry was populated from a direct-RPC resolve. Such entries
+  // can dedupe Kubo adds after a fresh fetch, but must not become verified-mode
+  // instant redirects without a Helios fetch first.
+  trustedDirectly?: boolean;
   // ENS name that produced this entry — first-write-wins. Cosmetic only;
   // surfaces in the options page list so users can identify pinned dapps.
   ensName?: string;

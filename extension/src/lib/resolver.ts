@@ -72,7 +72,8 @@ function getDirectClient(url: string): PublicClient {
 export type ResolveOptions = {
   /**
    * When true, do not go through Helios for this call; use the first user RPC
-   * directly. Surfaces as "RPC-trusted" in the banner so the user knows.
+   * directly. The persisted trustRpcDirectly setting applies the same behavior
+   * globally. Surfaces as "RPC-trusted" in the banner so the user knows.
    */
   bypassHelios?: boolean;
 };
@@ -104,7 +105,7 @@ export async function resolveEns(
     return { ok: false, error: `not a .eth name: ${name}` };
   }
 
-  const { rpcUrl } = await getSettings();
+  const { rpcUrl, trustRpcDirectly } = await getSettings();
   if (!rpcUrl) {
     return {
       ok: false,
@@ -115,7 +116,7 @@ export async function resolveEns(
   let client: PublicClient;
   let trustedDirectly = false;
 
-  if (opts.bypassHelios) {
+  if (opts.bypassHelios || trustRpcDirectly) {
     client = getDirectClient(rpcUrl);
     trustedDirectly = true;
   } else {
@@ -242,7 +243,7 @@ export async function resolveGwei(
     return { ok: false, error: `not a .gwei name: ${name}` };
   }
 
-  const { rpcUrl } = await getSettings();
+  const { rpcUrl, trustRpcDirectly } = await getSettings();
   if (!rpcUrl) {
     return {
       ok: false,
@@ -252,7 +253,7 @@ export async function resolveGwei(
 
   let client: PublicClient;
   let trustedDirectly = false;
-  if (opts.bypassHelios) {
+  if (opts.bypassHelios || trustRpcDirectly) {
     client = getDirectClient(rpcUrl);
     trustedDirectly = true;
   } else {
@@ -330,7 +331,7 @@ export async function resolveContractAddress(
     return { ok: false, error: `not a contract address: ${address}` };
   }
 
-  const { rpcUrl } = await getSettings();
+  const { rpcUrl, trustRpcDirectly } = await getSettings();
   if (!rpcUrl) {
     return {
       ok: false,
@@ -341,7 +342,7 @@ export async function resolveContractAddress(
   let client: PublicClient;
   let trustedDirectly = false;
 
-  if (opts.bypassHelios) {
+  if (opts.bypassHelios || trustRpcDirectly) {
     client = getDirectClient(rpcUrl);
     trustedDirectly = true;
   } else {
@@ -410,7 +411,17 @@ async function fetchPinAndCacheErc4804(
 
   const existing = await getWeb3CacheEntry(contractAddress).catch(() => null);
   if (existing && existing.contentHash === contentHash) {
-    bumpWeb3LastAccess(contractAddress).catch(() => undefined);
+    const lastAccess = Date.now();
+    if (existing.trustedDirectly && !trustedDirectly) {
+      setWeb3CacheEntry({
+        ...existing,
+        lastAccess,
+        ensName: existing.ensName ?? ensName,
+        trustedDirectly: false,
+      }).catch(() => undefined);
+    } else {
+      bumpWeb3LastAccess(contractAddress).catch(() => undefined);
+    }
     return {
       ok: true,
       kind: "web3",
@@ -460,6 +471,7 @@ async function fetchPinAndCacheErc4804(
     bodyLen: body.byteLength,
     lastAccess: Date.now(),
     ensName,
+    trustedDirectly,
   }).catch((e) => console.warn("[dapp3] web3 cache write failed", e));
 
   return {

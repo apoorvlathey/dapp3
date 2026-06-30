@@ -473,6 +473,12 @@ async function getConfiguredGateway() {
   return getIpfsGatewayConfig(settings);
 }
 
+async function startHeliosUnlessRpcTrusted() {
+  const settings = await getSettings().catch(() => null);
+  if (settings?.trustRpcDirectly) return;
+  await getOrStartHelios();
+}
+
 async function buildConfiguredSubdomainUrl(
   kind: ResolveKind,
   value: string,
@@ -877,6 +883,8 @@ getSettings().then((s) => {
     s.interceptW3Eth,
     "gweiDomains=",
     s.interceptGweiDomains,
+    "trustRpcDirectly=",
+    s.trustRpcDirectly,
   );
   syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
     console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
@@ -919,7 +927,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   const isW3Eth = W3ETH_HOST_RE.test(url.hostname);
   const isW3Link = W3LINK_HOST_RE.test(url.hostname);
   if (!isEth && !isGwei && !isW3Eth && !isW3Link) return;
-  getOrStartHelios().catch(() => undefined);
+  startHeliosUnlessRpcTrusted().catch(() => undefined);
   if (
     (isW3Eth || isW3Link) &&
     activeInterceptW3Eth !== false &&
@@ -1017,13 +1025,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ cached: false });
       return false;
     }
-    // GNS records are cheap to refresh (single contenthash call) and changed
-    // records can otherwise strand users on stale, now-unavailable IPFS CIDs.
-    if (GWEI_HOST_RE.test(name)) {
-      sendResponse({ cached: false });
-      return false;
-    }
     (async () => {
+      const settings = await getSettings().catch(() => null);
+      if (settings?.trustRpcDirectly) {
+        sendResponse({ cached: false, bypassHelios: true });
+        return;
+      }
+      // GNS records are cheap to refresh (single contenthash call) and changed
+      // records can otherwise strand users on stale, now-unavailable IPFS CIDs.
+      if (GWEI_HOST_RE.test(name)) {
+        sendResponse({ cached: false });
+        return;
+      }
       // Address-mode (w3eth.io / homepage 0x input): look up the per-contract
       // cache rather than the ENS-keyed one. The synthetic cache entry below
       // gives the rest of the flow (TabContext, refreshFromCache) the same
@@ -1038,7 +1051,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const entry = await getWeb3CacheEntry(name as `0x${string}`).catch(
           () => null,
         );
-        if (entry) {
+        if (entry && !entry.trustedDirectly) {
           hit = {
             ensName: name,
             kind: "web3",
@@ -1117,10 +1130,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get-helios-status") {
-    getHeliosStatus().then(
-      (status) => sendResponse({ ok: true, status }),
-      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
-    );
+    (async () => {
+      const settings = await getSettings().catch(() => null);
+      if (settings?.trustRpcDirectly) {
+        sendResponse({ ok: true, status: { state: "idle" } });
+        return;
+      }
+      try {
+        const status = await getHeliosStatus();
+        sendResponse({ ok: true, status });
+      } catch (e) {
+        sendResponse({ ok: false, error: describeError(e) });
+      }
+    })();
     return true;
   }
 
@@ -1130,10 +1152,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "boot-helios") {
-    getOrStartHelios().then(
-      (status) => sendResponse({ ok: true, status }),
-      (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
-    );
+    (async () => {
+      const settings = await getSettings().catch(() => null);
+      if (settings?.trustRpcDirectly) {
+        sendResponse({ ok: true, status: { state: "idle" } });
+        return;
+      }
+      try {
+        const status = await getOrStartHelios();
+        sendResponse({ ok: true, status });
+      } catch (e) {
+        sendResponse({ ok: false, error: describeError(e) });
+      }
+    })();
     return true;
   }
 
@@ -1314,6 +1345,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   installEthRedirectRule().catch((e) => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
+
   getSettings().then((s) => {
     const gateway = getIpfsGatewayConfig(s);
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
@@ -1329,10 +1361,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
     );
     syncActionPopup(!!s.onboardingComplete);
+    if (!s.trustRpcDirectly) {
+      getOrStartHelios().catch(() => {
+        /* no RPC yet is fine */
+      });
+    }
   });
-  getOrStartHelios().catch(() => {
-    /* no RPC yet is fine */
-  });
+
   if (details.reason === "install") {
     const s = await getSettings();
     if (!s.onboardingComplete) {
@@ -1347,6 +1382,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // it against the new URL. Also keep the eth.limo DNR rule in sync with the
 // user's preference.
 let activeRpc: string | undefined;
+let activeTrustRpcDirectly: boolean | undefined;
 let activeInterceptEthLimo: boolean | undefined;
 let activeInterceptW3Eth: boolean | undefined;
 let activeInterceptGweiDomains: boolean | undefined;
@@ -1354,6 +1390,7 @@ let activeOnboardingComplete: boolean | undefined;
 let activeIpfsGatewayHost: string | undefined;
 getSettings().then((s) => {
   activeRpc = s.rpcUrl;
+  activeTrustRpcDirectly = s.trustRpcDirectly;
   activeInterceptEthLimo = s.interceptEthLimo;
   activeInterceptW3Eth = s.interceptW3Eth;
   activeInterceptGweiDomains = s.interceptGweiDomains;
@@ -1365,8 +1402,18 @@ onSettingsChanged((s) => {
   if (next !== activeRpc) {
     activeRpc = next;
     shutdownHelios()
-      .then(() => getOrStartHelios().catch(() => undefined))
+      .then(() =>
+        s.trustRpcDirectly ? undefined : getOrStartHelios().catch(() => undefined),
+      )
       .catch(() => undefined);
+  }
+  if (s.trustRpcDirectly !== activeTrustRpcDirectly) {
+    activeTrustRpcDirectly = s.trustRpcDirectly;
+    if (s.trustRpcDirectly) {
+      shutdownHelios().catch(() => undefined);
+    } else if (s.rpcUrl) {
+      getOrStartHelios().catch(() => undefined);
+    }
   }
   if (s.interceptEthLimo !== activeInterceptEthLimo) {
     activeInterceptEthLimo = s.interceptEthLimo;
@@ -1404,6 +1451,7 @@ chrome.runtime.onStartup.addListener(() => {
   installEthRedirectRule().catch((e) => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
+
   getSettings().then((s) => {
     const gateway = getIpfsGatewayConfig(s);
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
@@ -1419,8 +1467,10 @@ chrome.runtime.onStartup.addListener(() => {
       console.warn("[dapp3] failed to sync gwei.domains DNR rule", e),
     );
     syncActionPopup(!!s.onboardingComplete);
-  });
-  getOrStartHelios().catch(() => {
-    /* no RPC yet is fine */
+    if (!s.trustRpcDirectly) {
+      getOrStartHelios().catch(() => {
+        /* no RPC yet is fine */
+      });
+    }
   });
 });

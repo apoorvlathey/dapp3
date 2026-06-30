@@ -56,6 +56,17 @@
           <span id="helios-live">loading…</span>
           <button type="button" class="primary helios-restart" id="helios-restart" disabled>Restart</button>
         </div>
+        <label class="toggle-row helios-trust-toggle" for="trust-rpc-directly">
+          <input type="checkbox" id="trust-rpc-directly" />
+          <span class="toggle-text">
+            <span class="toggle-title">Skip Helios and trust RPC directly</span>
+            <span class="toggle-sub">
+              Resolves ENS, GNS, and ERC-4804 reads through the execution RPC
+              without local consensus verification.
+            </span>
+          </span>
+        </label>
+        <p class="hint" id="trust-rpc-directly-status"></p>
         <form id="consensus-form" class="consensus-form">
           <div class="consensus-head">
             <span class="meta-k">Consensus RPC</span>
@@ -215,8 +226,9 @@
         <h2>Web3:// dapps (<a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a>)</h2>
         <p class="hint">
           Onchain HTML pinned to your local Kubo node. Each entry was
-          fetched via Helios-verified <code>eth_call</code> and is served
-          from your configured IPFS gateway. Evict an entry
+          fetched via Helios-verified <code>eth_call</code> unless direct
+          RPC trust was enabled, and is served from your configured IPFS
+          gateway. Evict an entry
           to drop the pin and free Kubo storage.
         </p>
 

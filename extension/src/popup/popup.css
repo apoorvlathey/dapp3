@@ -128,6 +128,7 @@ main {
 
 .dot.ok { background: var(--brand-500); }
 .dot.bad { background: var(--rose-500); }
+.dot.caution { background: var(--amber-500); }
 .dot.syncing {
   background: var(--amber-400);
   animation: pulse 1.4s ease-in-out infinite;
@@ -140,6 +141,7 @@ main {
 
 .status.ok    { color: var(--brand-300); }
 .status.bad   { color: var(--rose-500); }
+.status.caution { color: var(--amber-400); }
 
 .error-card {
   background: var(--bg-card);

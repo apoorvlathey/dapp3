@@ -41,6 +41,12 @@ const heliosDotEl = document.getElementById("helios-dot") as HTMLElement;
 const heliosRestartBtn = document.getElementById(
   "helios-restart",
 ) as HTMLButtonElement;
+const trustRpcDirectlyToggle = document.getElementById(
+  "trust-rpc-directly",
+) as HTMLInputElement;
+const trustRpcDirectlyStatus = document.getElementById(
+  "trust-rpc-directly-status",
+) as HTMLElement;
 const consensusForm = document.getElementById(
   "consensus-form",
 ) as HTMLFormElement;
@@ -144,6 +150,8 @@ const PENCIL_OFF_SVG = `
 
 // RPC URLs often carry API keys. Keep the input masked until the user opts in.
 let rpcRevealed = false;
+let trustRpcDirectlyEnabled = false;
+let lastHeliosStatus: HeliosStatus | null = null;
 
 function maskRpcUrl(url: string): string {
   try {
@@ -627,12 +635,20 @@ checkpointForm.addEventListener("submit", async (e) => {
   checkpointApplyBtn.disabled = false;
 });
 
-function setHeliosDot(kind: "ok" | "bad" | "syncing" | "idle") {
-  heliosDotEl.classList.remove("ok", "bad", "syncing");
+function setHeliosDot(kind: "ok" | "bad" | "syncing" | "caution" | "idle") {
+  heliosDotEl.classList.remove("ok", "bad", "syncing", "caution");
   if (kind !== "idle") heliosDotEl.classList.add(kind);
 }
 
 function renderHelios(status: HeliosStatus | null) {
+  lastHeliosStatus = status;
+  if (trustRpcDirectlyEnabled) {
+    heliosLiveEl.textContent = "Skipped · trusting execution RPC directly";
+    setHeliosDot("caution");
+    setHeliosRestartBtn("Skipped", true);
+    return;
+  }
+
   if (!status) {
     heliosLiveEl.textContent = "Unknown";
     setHeliosDot("idle");
@@ -666,6 +682,15 @@ function renderHelios(status: HeliosStatus | null) {
       setHeliosRestartBtn("Restart", false);
       break;
   }
+}
+
+function syncTrustRpcDirectlyUI(enabled: boolean) {
+  trustRpcDirectlyEnabled = enabled;
+  trustRpcDirectlyToggle.checked = enabled;
+  trustRpcDirectlyStatus.textContent = enabled
+    ? "Enabled. New resolutions will be marked RPC-trusted."
+    : "";
+  renderHelios(lastHeliosStatus);
 }
 
 function setHeliosRestartBtn(label: string, disabled: boolean) {
@@ -737,6 +762,7 @@ onSettingsChanged((s) => {
   interceptW3EthToggle.checked = s.interceptW3Eth;
   interceptGweiDomainsToggle.checked = s.interceptGweiDomains;
   autoPinIpfsToggle.checked = s.autoPinIpfsContent;
+  syncTrustRpcDirectlyUI(s.trustRpcDirectly);
   if (
     document.activeElement !== web3SizeCapInput &&
     document.activeElement !== web3EntryBudgetInput
@@ -755,6 +781,18 @@ interceptW3EthToggle.addEventListener("change", async () => {
 
 interceptGweiDomainsToggle.addEventListener("change", async () => {
   await setSettings({ interceptGweiDomains: interceptGweiDomainsToggle.checked });
+});
+
+trustRpcDirectlyToggle.addEventListener("change", async () => {
+  trustRpcDirectlyToggle.disabled = true;
+  const enabled = trustRpcDirectlyToggle.checked;
+  trustRpcDirectlyStatus.className = "hint";
+  syncTrustRpcDirectlyUI(enabled);
+  await setSettings({ trustRpcDirectly: enabled });
+  trustRpcDirectlyStatus.textContent = enabled
+    ? "Enabled. New resolutions will be marked RPC-trusted."
+    : "Disabled. Helios will verify onchain reads again.";
+  trustRpcDirectlyToggle.disabled = false;
 });
 
 autoPinIpfsToggle.addEventListener("change", async () => {
@@ -889,9 +927,10 @@ function renderWeb3List(entries: Web3CacheEntry[]) {
     const name = document.createElement("div");
     name.className = "web3-name";
     name.textContent = entry.ensName ?? entry.contractAddress;
-    const meta = document.createElement("div");
-    meta.className = "web3-meta";
-    meta.textContent = `${entry.contractAddress.slice(0, 10)}… · ${formatBytes(entry.bodyLen)} · ${formatRelative(entry.lastAccess)}`;
+	    const meta = document.createElement("div");
+	    meta.className = "web3-meta";
+	    const trustLabel = entry.trustedDirectly ? " · RPC-trusted" : "";
+	    meta.textContent = `${entry.contractAddress.slice(0, 10)}… · ${formatBytes(entry.bodyLen)} · ${formatRelative(entry.lastAccess)}${trustLabel}`;
     const cidLine = document.createElement("div");
     cidLine.className = "web3-cid";
     cidLine.textContent = entry.cid;
@@ -946,6 +985,7 @@ function renderWeb3List(entries: Web3CacheEntry[]) {
   interceptW3EthToggle.checked = s.interceptW3Eth;
   interceptGweiDomainsToggle.checked = s.interceptGweiDomains;
   autoPinIpfsToggle.checked = s.autoPinIpfsContent;
+  syncTrustRpcDirectlyUI(s.trustRpcDirectly);
   syncWeb3Budgets(s);
   loadWeb3List();
   pollHelios();
