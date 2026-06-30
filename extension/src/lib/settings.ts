@@ -24,6 +24,11 @@ export type Settings = {
   // so the resolver skips ENS lookup and goes straight to the ERC-4804 fetch
   // path.
   interceptW3Eth: boolean;
+  // Local Kubo subdomain gateway used to serve resolved IPFS/IPNS/ERC-4804
+  // content. Defaults to Kubo's standard localhost:8080 gateway, but users
+  // can point routing at another subdomain-capable gateway host.
+  ipfsGatewayHost: string;
+  ipfsGatewayPort: number;
   // ERC-4804 cache budgets. See PRD_ERC4804.md §5.4 / §7 / W4. Both bound
   // total Kubo storage used by web3:// dapps; LRU eviction kicks in when
   // either is exceeded. Defaults are exported from web3url-cache.ts.
@@ -45,6 +50,8 @@ const DEFAULT: Settings = {
   onboardingComplete: false,
   interceptEthLimo: true,
   interceptW3Eth: true,
+  ipfsGatewayHost: "localhost",
+  ipfsGatewayPort: 8080,
   autoPinIpfsContent: false,
 };
 

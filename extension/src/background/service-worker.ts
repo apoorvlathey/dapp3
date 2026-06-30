@@ -4,7 +4,13 @@ import {
   resolveEns,
   getOrStartHelios,
 } from "@/lib/resolver";
-import { buildSubdomainUrl, parseGatewayHost } from "@/lib/gateway";
+import {
+  buildSubdomainUrl,
+  DEFAULT_IPFS_GATEWAY_HOST,
+  getIpfsGatewayConfig,
+  parseGatewayHost,
+  type IpfsGatewayConfig,
+} from "@/lib/gateway";
 import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
 import type {
@@ -61,6 +67,21 @@ const W3ETH_REDIRECT_RULE_ID = 1004;
 // the network-layer redirect for browsers where that one fires.
 const W3ETH_BYPASS_RULE_ID = 1005;
 const W3LINK_REDIRECT_RULE_ID = 1006;
+const IPFS_GATEWAY_HTTP_ALLOW_RULE_ID = 1007;
+const IPNS_GATEWAY_HTTP_ALLOW_RULE_ID = 1008;
+
+const GATEWAY_HTTP_ALLOW_RESOURCE_TYPES = [
+  chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+  chrome.declarativeNetRequest.ResourceType.SUB_FRAME,
+  chrome.declarativeNetRequest.ResourceType.STYLESHEET,
+  chrome.declarativeNetRequest.ResourceType.SCRIPT,
+  chrome.declarativeNetRequest.ResourceType.IMAGE,
+  chrome.declarativeNetRequest.ResourceType.FONT,
+  chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
+  chrome.declarativeNetRequest.ResourceType.MEDIA,
+  chrome.declarativeNetRequest.ResourceType.WEBSOCKET,
+  chrome.declarativeNetRequest.ResourceType.OTHER,
+];
 
 function errorPageUrl(
   name: string,
@@ -109,6 +130,43 @@ async function installEthRedirectRule() {
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
+        },
+      },
+    ],
+  });
+}
+
+async function syncIpfsGatewayHttpAllowRules(gateway: IpfsGatewayConfig) {
+  const ruleIds = [
+    IPFS_GATEWAY_HTTP_ALLOW_RULE_ID,
+    IPNS_GATEWAY_HTTP_ALLOW_RULE_ID,
+  ];
+  if (gateway.host === DEFAULT_IPFS_GATEWAY_HOST) {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: ruleIds,
+    });
+    return;
+  }
+
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: ruleIds,
+    addRules: [
+      {
+        id: IPFS_GATEWAY_HTTP_ALLOW_RULE_ID,
+        priority: 1,
+        action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
+        condition: {
+          urlFilter: `||ipfs.${gateway.host}`,
+          resourceTypes: GATEWAY_HTTP_ALLOW_RESOURCE_TYPES,
+        },
+      },
+      {
+        id: IPNS_GATEWAY_HTTP_ALLOW_RULE_ID,
+        priority: 1,
+        action: { type: chrome.declarativeNetRequest.RuleActionType.ALLOW },
+        condition: {
+          urlFilter: `||ipns.${gateway.host}`,
+          resourceTypes: GATEWAY_HTTP_ALLOW_RESOURCE_TYPES,
         },
       },
     ],
@@ -313,6 +371,28 @@ const autoPinInflight = new Set<string>();
 
 function describeError(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+async function getConfiguredGateway() {
+  const settings = await getSettings().catch(() => null);
+  return getIpfsGatewayConfig(settings);
+}
+
+async function buildConfiguredSubdomainUrl(
+  kind: ResolveKind,
+  value: string,
+  path = "/",
+  search = "",
+  hash = "",
+): Promise<string> {
+  return buildSubdomainUrl(
+    kind,
+    value,
+    path,
+    search,
+    hash,
+    await getConfiguredGateway(),
+  );
 }
 
 async function getIpfsPinStatus(cid: string): Promise<IpfsPinStatus> {
@@ -537,7 +617,13 @@ async function resolveAndRedirect(
     });
     return { ok: false, error: result.error };
   }
-  const target = buildSubdomainUrl(result.kind, result.value, path || "/", search, hash);
+  const target = await buildConfiguredSubdomainUrl(
+    result.kind,
+    result.value,
+    path || "/",
+    search,
+    hash,
+  );
   const ctx: TabContext = {
     ensName: result.ensName,
     kind: result.kind,
@@ -643,7 +729,7 @@ async function refreshFromCache(
     // Same content. Done — just leave the timestamp bump above.
     return;
   }
-  const newGateway = buildSubdomainUrl(
+  const newGateway = await buildConfiguredSubdomainUrl(
     result.kind,
     result.value,
     path || "/",
@@ -683,6 +769,7 @@ installEthRedirectRule().then(
   (e) => console.warn("[dapp3] failed to install .eth DNR rule", e),
 );
 getSettings().then((s) => {
+  const gateway = getIpfsGatewayConfig(s);
   console.log(
     "[dapp3] booting with intercept toggles:",
     "ethLimo=",
@@ -692,6 +779,9 @@ getSettings().then((s) => {
   );
   syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
     console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+  );
+  syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
+    console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
   );
   syncWeb3GatewayRedirectRules(s.interceptW3Eth).then(
     () =>
@@ -777,7 +867,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ctx: null });
         return;
       }
-      const parsed = parseGatewayHost(u.hostname);
+      const gateway = await getConfiguredGateway();
+      const parsed = parseGatewayHost(u.hostname, gateway.host);
       if (!parsed) {
         sendResponse({ ctx: null });
         return;
@@ -858,7 +949,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ cached: false });
         return;
       }
-      const gatewayUrl = buildSubdomainUrl(
+      const gatewayUrl = await buildConfiguredSubdomainUrl(
         hit.kind,
         hit.value,
         path || "/",
@@ -1079,8 +1170,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
   getSettings().then((s) => {
+    const gateway = getIpfsGatewayConfig(s);
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+    );
+    syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
+      console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
     );
     syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
       console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
@@ -1107,11 +1202,13 @@ let activeRpc: string | undefined;
 let activeInterceptEthLimo: boolean | undefined;
 let activeInterceptW3Eth: boolean | undefined;
 let activeOnboardingComplete: boolean | undefined;
+let activeIpfsGatewayHost: string | undefined;
 getSettings().then((s) => {
   activeRpc = s.rpcUrl;
   activeInterceptEthLimo = s.interceptEthLimo;
   activeInterceptW3Eth = s.interceptW3Eth;
   activeOnboardingComplete = !!s.onboardingComplete;
+  activeIpfsGatewayHost = getIpfsGatewayConfig(s).host;
 });
 onSettingsChanged((s) => {
   const next = s.rpcUrl;
@@ -1133,6 +1230,13 @@ onSettingsChanged((s) => {
       console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
     );
   }
+  const gateway = getIpfsGatewayConfig(s);
+  if (gateway.host !== activeIpfsGatewayHost) {
+    activeIpfsGatewayHost = gateway.host;
+    syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
+      console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
+    );
+  }
   const onboarded = !!s.onboardingComplete;
   if (onboarded !== activeOnboardingComplete) {
     activeOnboardingComplete = onboarded;
@@ -1145,8 +1249,12 @@ chrome.runtime.onStartup.addListener(() => {
     console.warn("[dapp3] failed to install .eth DNR rule", e);
   });
   getSettings().then((s) => {
+    const gateway = getIpfsGatewayConfig(s);
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
+    );
+    syncIpfsGatewayHttpAllowRules(gateway).catch((e) =>
+      console.warn("[dapp3] failed to sync IPFS gateway HTTP allow rules", e),
     );
     syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
       console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),

@@ -134,6 +134,62 @@
         <datalist id="beacon-endpoints"></datalist>
       </section>
 
+      <section class="gateway-section">
+        <details class="gateway-details" open>
+          <summary class="gateway-summary">
+            <span class="gateway-summary-title">
+              <span>Gateway URL</span>
+              <span class="gateway-optional">(optional)</span>
+            </span>
+          </summary>
+          <p class="hint gateway-lede">
+            Override the host or port if your Kubo subdomain gateway isn't on
+            the default <code>localhost:8080</code>.
+          </p>
+          <div class="gateway-preview-row" aria-live="polite">
+            <span class="meta-k">Preview</span>
+            <code id="ipfs-gateway-preview" class="gateway-preview-code"></code>
+          </div>
+          <form id="ipfs-gateway-form" class="gateway-form">
+            <div class="gateway-fields">
+              <label class="gateway-host-field">
+                <span class="meta-k">Host</span>
+                <input
+                  type="text"
+                  id="ipfs-gateway-host"
+                  placeholder="localhost or http://localhost:8080"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </label>
+              <label class="gateway-port-field">
+                <span class="meta-k">Port</span>
+                <input
+                  type="number"
+                  id="ipfs-gateway-port"
+                  min="1"
+                  max="65535"
+                  step="1"
+                  inputmode="numeric"
+                />
+              </label>
+            </div>
+            <p class="hint gateway-note">
+              The identity banner is still injected only on
+              <code>*.ipfs.localhost</code> and <code>*.ipns.localhost</code>.
+              Routing uses this custom gateway either way.
+            </p>
+            <p class="hint" id="ipfs-gateway-status"></p>
+            <div class="gateway-actions">
+              <button type="button" class="secondary" id="ipfs-gateway-reset">
+                Reset
+              </button>
+              <button type="submit" id="ipfs-gateway-apply">Save</button>
+            </div>
+          </form>
+        </details>
+      </section>
+
       <section>
         <h2>IPFS content pinning</h2>
         <p class="hint">
@@ -160,7 +216,7 @@
         <p class="hint">
           Onchain HTML pinned to your local Kubo node. Each entry was
           fetched via Helios-verified <code>eth_call</code> and is served
-          from <code>&lt;cid&gt;.ipfs.localhost:8080</code>. Evict an entry
+          from your configured IPFS gateway. Evict an entry
           to drop the pin and free Kubo storage.
         </p>
 

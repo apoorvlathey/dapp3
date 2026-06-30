@@ -1,19 +1,74 @@
-// Kubo HTTP API helpers. The gateway on :8080 is what serves content; the
-// API on :5001 is what we use to *write* content (pinning ERC-4804 bodies
+// Kubo gateway probe + HTTP API helpers. The gateway is what serves content;
+// the API on :5001 is what we use to *write* content (pinning ERC-4804 bodies
 // for serving) and, optionally, to pin resolved IPFS contenthash CIDs. Kubo's
 // API rejects browser-originated requests whose Origin isn't on its allowlist
 // (CSRF / DNS-rebinding defense). Users who want ERC-4804 support or IPFS
 // auto-pinning need to allow the extension origin in Kubo's config:
 //
 //   ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin \
-//     '["chrome-extension://<EXTENSION_ID>", "http://localhost:8080"]'
+//     '["chrome-extension://<EXTENSION_ID>"]'
 //   ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods \
 //     '["POST"]'
 //
 // On a CORS rejection we surface KuboPinError so the caller can map to the
 // extension's web3-pin-failed error page with a concrete fix message.
 
+import {
+  buildIpfsGatewayProbeUrl,
+  DEFAULT_IPFS_GATEWAY,
+  type IpfsGatewayConfig,
+} from "./gateway";
+
+const KUBO_GATEWAY_PROBE_TIMEOUT_MS = 2500;
+const KUBO_GATEWAY_MEMO_MS = 30_000;
 const KUBO_API_BASE = "http://127.0.0.1:5001";
+
+type GatewayProbeMemo = {
+  reachable: boolean;
+  checkedAt: number;
+  probeUrl: string;
+};
+
+let gatewayProbeMemo: GatewayProbeMemo | null = null;
+
+export async function probeKuboGateway(
+  gateway: IpfsGatewayConfig = DEFAULT_IPFS_GATEWAY,
+  opts: { force?: boolean; timeoutMs?: number } = {},
+): Promise<boolean> {
+  const probeUrl = buildIpfsGatewayProbeUrl(gateway);
+  if (
+    !opts.force &&
+    gatewayProbeMemo &&
+    gatewayProbeMemo.probeUrl === probeUrl &&
+    Date.now() - gatewayProbeMemo.checkedAt < KUBO_GATEWAY_MEMO_MS
+  ) {
+    return gatewayProbeMemo.reachable;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    opts.timeoutMs ?? KUBO_GATEWAY_PROBE_TIMEOUT_MS,
+  );
+  try {
+    await fetch(probeUrl, {
+      mode: "no-cors",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    gatewayProbeMemo = { reachable: true, checkedAt: Date.now(), probeUrl };
+    return true;
+  } catch {
+    gatewayProbeMemo = { reachable: false, checkedAt: Date.now(), probeUrl };
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function invalidateKuboGatewayProbe(): void {
+  gatewayProbeMemo = null;
+}
 
 export type KuboPinErrorKind =
   | { kind: "unreachable"; cause: string }
