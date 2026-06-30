@@ -36,6 +36,7 @@ import {
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
 const W3ETH_HOST_RE = /^0x[a-f0-9]{40}\.w3eth\.io\.?$/i;
+const W3LINK_HOST_RE = /^0x[a-f0-9]{40}\.1\.w3link\.io\.?$/i;
 const ADDRESS_RE = /^0x[a-f0-9]{40}$/i;
 
 // Dynamic DNR rule IDs. Must not collide with the static rules in
@@ -47,9 +48,9 @@ const ETH_LIMO_REDIRECT_RULE_ID = 1002;
 // public gateway even when interception is on. Session rules are evicted on
 // browser shutdown, so there's no cross-session leak.
 const ETH_LIMO_BYPASS_RULE_ID = 1003;
-// Catches `https?://0x<addr>.w3eth.io[/path]` and rewrites to the interstitial
-// with the original URL stashed in the fragment. Same shape as the .eth rule:
-// the interstitial recovers the URL via location.hash and parses the contract
+// Catches ERC-4804 hosted gateway links and rewrites to the interstitial with
+// the original URL stashed in the fragment. Same shape as the .eth rule: the
+// interstitial recovers the URL via location.hash and parses the contract
 // address out of the hostname. Toggle: settings.interceptW3Eth.
 const W3ETH_REDIRECT_RULE_ID = 1004;
 // Session-scoped ALLOW rule that punches through the w3eth.io DNR redirect
@@ -59,6 +60,7 @@ const W3ETH_REDIRECT_RULE_ID = 1004;
 // below covers the JS-layer redirect (onBeforeNavigate); the DNR rule covers
 // the network-layer redirect for browsers where that one fires.
 const W3ETH_BYPASS_RULE_ID = 1005;
+const W3LINK_REDIRECT_RULE_ID = 1006;
 
 function errorPageUrl(
   name: string,
@@ -113,14 +115,17 @@ async function installEthRedirectRule() {
   });
 }
 
-async function syncW3EthRedirectRule(enabled: boolean) {
-  // Rewrites `https?://0x<40hex>.w3eth.io[:port][/path]` → the interstitial,
-  // with the original URL preserved in the fragment so the page can recover
-  // the contract address and resolve via local Helios + Kubo. The fragment
-  // form mirrors the .eth rule exactly so interstitial.ts has one parse path.
+async function syncWeb3GatewayRedirectRules(enabled: boolean) {
+  // Rewrites ERC-4804 hosted gateway URLs into the interstitial, with the
+  // original URL preserved in the fragment so the page can recover the contract
+  // address and resolve via local Helios + Kubo.
+  //
+  // Supported gateway shapes:
+  //   - `https?://0x<40hex>.w3eth.io[:port][/path]`
+  //   - `https?://0x<40hex>.1.w3link.io[:port][/path]` (Ethereum mainnet)
   if (!enabled) {
     await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds: [W3ETH_REDIRECT_RULE_ID],
+      removeRuleIds: [W3ETH_REDIRECT_RULE_ID, W3LINK_REDIRECT_RULE_ID],
     });
     return;
   }
@@ -129,11 +134,11 @@ async function syncW3EthRedirectRule(enabled: boolean) {
   // user may need to remove + re-load the extension to pick up the new host.
   try {
     const has = await chrome.permissions.contains({
-      origins: ["*://*.w3eth.io/*"],
+      origins: ["*://*.w3eth.io/*", "*://*.w3link.io/*"],
     });
     if (!has) {
       console.warn(
-        "[dapp3] missing *://*.w3eth.io/* host permission — w3eth.io redirect will no-op." +
+        "[dapp3] missing ERC-4804 gateway host permission — hosted gateway redirects may no-op." +
           " Remove and re-load the unpacked extension to grant the new host.",
       );
     }
@@ -142,7 +147,7 @@ async function syncW3EthRedirectRule(enabled: boolean) {
   }
   const interstitial = chrome.runtime.getURL("interstitial.html");
   await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: [W3ETH_REDIRECT_RULE_ID],
+    removeRuleIds: [W3ETH_REDIRECT_RULE_ID, W3LINK_REDIRECT_RULE_ID],
     addRules: [
       {
         id: W3ETH_REDIRECT_RULE_ID,
@@ -154,6 +159,21 @@ async function syncW3EthRedirectRule(enabled: boolean) {
         condition: {
           regexFilter:
             "^https?://0x[a-f0-9]{40}\\.w3eth\\.io\\.?(?::\\d+)?(?:/.*)?$",
+          resourceTypes: [
+            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
+          ],
+        },
+      },
+      {
+        id: W3LINK_REDIRECT_RULE_ID,
+        priority: 2,
+        action: {
+          type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
+          redirect: { regexSubstitution: `${interstitial}#\\0` },
+        },
+        condition: {
+          regexFilter:
+            "^https?://0x[a-f0-9]{40}\\.1\\.w3link\\.io\\.?(?::\\d+)?(?:/.*)?$",
           resourceTypes: [
             chrome.declarativeNetRequest.ResourceType.MAIN_FRAME,
           ],
@@ -500,7 +520,7 @@ async function resolveAndRedirect(
   opts: { bypassHelios?: boolean } = {},
 ): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
   // The "ensName" parameter is a generic resolution target — either a `.eth`
-  // name or a 0x contract address (from w3eth.io interception or homepage).
+  // name or a 0x contract address (from ERC-4804 gateway interception or homepage).
   const result = ADDRESS_RE.test(ensName)
     ? await resolveContractAddress(ensName, opts)
     : await resolveEns(ensName, opts);
@@ -673,13 +693,13 @@ getSettings().then((s) => {
   syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
     console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
   );
-  syncW3EthRedirectRule(s.interceptW3Eth).then(
+  syncWeb3GatewayRedirectRules(s.interceptW3Eth).then(
     () =>
       console.log(
-        "[dapp3] w3eth.io DNR rule",
+        "[dapp3] ERC-4804 gateway DNR rules",
         s.interceptW3Eth ? "installed" : "removed",
       ),
-    (e) => console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    (e) => console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
   );
   syncActionPopup(!!s.onboardingComplete);
 });
@@ -687,7 +707,7 @@ getSettings().then((s) => {
 // DNR handles the *.eth → interstitial redirect synchronously at the network
 // layer, beating Chrome's DNS-failure page. This listener pre-boots Helios so
 // it has a head start by the time the interstitial polls it. It also acts as
-// a JS-layer fallback for w3eth.io interception: the DNR rule for w3eth.io
+// a JS-layer fallback for ERC-4804 hosted-gateway interception: the DNR rule
 // has proven unreliable in practice (silently no-ops in some Chrome setups
 // even with proper host_permissions), so we always issue the tabs.update
 // redirect here too. If DNR happened to fire as well, both target the same
@@ -702,10 +722,11 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   }
   const isEth = ETH_HOST_RE.test(url.hostname);
   const isW3Eth = W3ETH_HOST_RE.test(url.hostname);
-  if (!isEth && !isW3Eth) return;
+  const isW3Link = W3LINK_HOST_RE.test(url.hostname);
+  if (!isEth && !isW3Eth && !isW3Link) return;
   getOrStartHelios().catch(() => undefined);
   if (
-    isW3Eth &&
+    (isW3Eth || isW3Link) &&
     activeInterceptW3Eth !== false &&
     !w3EthBypassTabs.has(details.tabId)
   ) {
@@ -714,7 +735,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     chrome.tabs
       .update(details.tabId, { url: target })
       .catch((e) =>
-        console.warn("[dapp3] w3eth.io fallback redirect failed", e),
+        console.warn("[dapp3] ERC-4804 gateway fallback redirect failed", e),
       );
   }
 });
@@ -1061,8 +1082,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
     );
-    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
-      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
     );
     syncActionPopup(!!s.onboardingComplete);
   });
@@ -1108,8 +1129,8 @@ onSettingsChanged((s) => {
   }
   if (s.interceptW3Eth !== activeInterceptW3Eth) {
     activeInterceptW3Eth = s.interceptW3Eth;
-    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
-      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
     );
   }
   const onboarded = !!s.onboardingComplete;
@@ -1127,8 +1148,8 @@ chrome.runtime.onStartup.addListener(() => {
     syncEthLimoRedirectRule(s.interceptEthLimo).catch((e) =>
       console.warn("[dapp3] failed to sync eth.limo DNR rule", e),
     );
-    syncW3EthRedirectRule(s.interceptW3Eth).catch((e) =>
-      console.warn("[dapp3] failed to sync w3eth.io DNR rule", e),
+    syncWeb3GatewayRedirectRules(s.interceptW3Eth).catch((e) =>
+      console.warn("[dapp3] failed to sync ERC-4804 gateway DNR rules", e),
     );
     syncActionPopup(!!s.onboardingComplete);
   });

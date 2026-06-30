@@ -215,9 +215,10 @@ export async function resolveEns(
 }
 
 // Resolve a raw 0x contract address as an ERC-4804 dapp, skipping ENS lookup.
-// Used for `0x<addr>.w3eth.io` interception and the homepage's address-mode
-// input. The "ensName" carried on the response is the lowercased address
-// itself, since there is no associated ENS name for this navigation.
+// Used for ERC-4804 hosted-gateway interception (`w3eth.io` / mainnet
+// `w3link.io`) and the homepage's address-mode input. The "ensName" carried on
+// the response is the lowercased address itself, since there is no associated
+// ENS name for this navigation.
 export async function resolveContractAddress(
   address: string,
   opts: ResolveOptions = {},
@@ -270,7 +271,7 @@ export async function resolveContractAddress(
 // Shared ERC-4804 path: fetch the contract body via Helios, sha256-dedupe
 // against the per-contract cache, pin to local Kubo if changed, evict LRU
 // entries to fit budget. Used by both ENS resolution (when contenthash is
-// missing) and direct-address resolution (w3eth.io / homepage 0x input).
+// missing) and direct-address resolution (ERC-4804 gateway / homepage 0x input).
 async function fetchPinAndCacheErc4804(
   client: PublicClient,
   address: `0x${string}`,

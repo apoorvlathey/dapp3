@@ -17,8 +17,8 @@ import { colorizeJson } from "@/lib/colorize-json";
 // (?name=&path=…) is kept as a fallback for manual/programmatic navigations.
 //
 // `ensName` is the resolution target — either a `.eth` name (ENS mode) or a
-// `0x<40hex>` contract address (w3eth.io / homepage address mode). The SW
-// dispatches based on the format. `mode` is exposed for UI affordances that
+// `0x<40hex>` contract address (ERC-4804 gateway / homepage address mode). The
+// SW dispatches based on the format. `mode` is exposed for UI affordances that
 // only make sense in one mode (ENS history link, eth.limo fallback, etc.).
 type TargetMode = "ens" | "address";
 
@@ -34,7 +34,17 @@ function parseTarget(): {
     try {
       const u = new URL(raw);
       const host = u.hostname.replace(/\.$/, "").toLowerCase();
-      // w3eth.io subdomain is the contract address directly.
+      // ERC-4804 gateway subdomains carry the contract address directly.
+      const w3linkMatch = host.match(/^(0x[a-f0-9]{40})\.1\.w3link\.io$/i);
+      if (w3linkMatch && w3linkMatch[1]) {
+        return {
+          ensName: w3linkMatch[1].toLowerCase(),
+          path: u.pathname || "/",
+          search: u.search,
+          hash: u.hash,
+          mode: "address",
+        };
+      }
       const addrMatch = host.match(/^(0x[a-f0-9]{40})\.w3eth\.io$/i);
       if (addrMatch && addrMatch[1]) {
         return {

@@ -5,8 +5,8 @@
 //   - `0x<addr>/<path>`   → https://<addr>.w3eth.io/<path> (interceptW3Eth)
 //
 // Going through the public `https://...w3eth.io` URL keeps us on the same
-// resolve path as a typed/clicked w3eth.io link: the DNR rule rewrites it to
-// the interstitial before the request leaves the browser. If the user has
+// resolve path as a typed/clicked ERC-4804 gateway link: the DNR rule rewrites
+// it to the interstitial before the request leaves the browser. If the user has
 // disabled `interceptW3Eth`, the home page intentionally falls back to the
 // public gateway — that matches the toggle's "off = public gateway" semantics.
 
@@ -36,6 +36,11 @@ function parse(rawInput: string): Parsed | null {
   const w3 = head.match(/^(0x[a-f0-9]{40})\.w3eth\.io$/);
   if (w3 && w3[1]) {
     return { kind: "address", address: w3[1], rest: suffix };
+  }
+  // Pasted `0x<addr>.1.w3link.io[:port]/path` — strip the gateway suffix.
+  const w3link = head.match(/^(0x[a-f0-9]{40})\.1\.w3link\.io$/);
+  if (w3link && w3link[1]) {
+    return { kind: "address", address: w3link[1], rest: suffix };
   }
   // Pasted `<name>.eth.limo` / `<name>.eth.link` — strip the gateway suffix.
   const limo = head.match(/^((?:[a-z0-9-]+\.)+eth)\.(?:limo|link)$/);

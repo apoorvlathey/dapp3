@@ -58,11 +58,12 @@ export default defineManifest({
     // redirect is a silent no-op.
     "*://*.eth.limo/*",
     "*://*.eth.link/*",
-    // Same reason for the optional `0x<addr>.w3eth.io` interception. The DNR
-    // rule rewrites those URLs into the interstitial with the contract address
+    // Same reason for optional ERC-4804 hosted-gateway interception. The DNR
+    // rules rewrite those URLs into the interstitial with the contract address
     // stashed in the fragment; without host access the redirect is a silent
-    // no-op and the public w3eth.io gateway wins the request.
+    // no-op and the public gateway wins the request.
     "*://*.w3eth.io/*",
+    "*://*.w3link.io/*",
   ],
   optional_host_permissions: ["https://*/*", "http://*/*"],
   content_security_policy: {

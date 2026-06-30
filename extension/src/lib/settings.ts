@@ -17,10 +17,12 @@ export type Settings = {
   // intercepting without a working IPFS node would just break those links for
   // the user. Name is historical — it governs both eth.limo and eth.link.
   interceptEthLimo: boolean;
-  // Intercept `0x<40hex>.w3eth.io` navigations and route the contract address
-  // through local ERC-4804 resolution. Same default-true / Kubo-gated story as
-  // interceptEthLimo. The subdomain is the contract address directly, so the
-  // resolver skips ENS lookup and goes straight to the ERC-4804 fetch path.
+  // Intercept ERC-4804 hosted gateway navigations (`0x<addr>.w3eth.io` and
+  // `0x<addr>.1.w3link.io`) and route the contract address through local
+  // ERC-4804 resolution. Same default-true / Kubo-gated story as
+  // interceptEthLimo. The gateway host carries the contract address directly,
+  // so the resolver skips ENS lookup and goes straight to the ERC-4804 fetch
+  // path.
   interceptW3Eth: boolean;
   // ERC-4804 cache budgets. See PRD_ERC4804.md §5.4 / §7 / W4. Both bound
   // total Kubo storage used by web3:// dapps; LRU eviction kicks in when
