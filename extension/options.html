@@ -134,6 +134,27 @@
         <datalist id="beacon-endpoints"></datalist>
       </section>
 
+      <section>
+        <h2>IPFS content pinning</h2>
+        <p class="hint">
+          Optional recursive pins for ENS names that resolve to IPFS
+          contenthashes. Requires the Kubo API at <code>127.0.0.1:5001</code>
+          to allow this extension.
+        </p>
+        <label class="toggle-row" for="auto-pin-ipfs">
+          <input type="checkbox" id="auto-pin-ipfs" />
+          <span class="toggle-text">
+            <span class="toggle-title">Auto-pin resolved IPFS CIDs</span>
+            <span class="toggle-sub">
+              Pins each resolved IPFS CID in the background after navigation.
+              IPNS is not pinned by this toggle; ERC-4804 already uses its own
+              managed pins.
+            </span>
+          </span>
+        </label>
+        <p class="hint" id="auto-pin-ipfs-status"></p>
+      </section>
+
       <section id="web3-section">
         <h2>Web3:// dapps (<a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a>)</h2>
         <p class="hint">

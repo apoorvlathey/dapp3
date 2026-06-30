@@ -6,7 +6,7 @@
     <title>dapp3.eth · resolve .eth domains, verified locally</title>
     <meta
       name="description"
-      content="A browser extension that resolves .eth names directly against Ethereum state via a local light client. Serves IPFS contenthash from your own node, or onchain HTML (ERC-4804) verified on your device. No gateway. No trust."
+      content="A browser extension that resolves .eth names directly against Ethereum state via a local light client. Serves IPFS contenthashes from your own node, can auto-pin resolved CIDs locally, and loads onchain HTML (ERC-4804) verified on your device. No gateway. No trust."
     />
 
     <meta property="og:type" content="website" />
@@ -335,6 +335,29 @@
             </p>
             <span class="feature-meta">Content stays local</span>
           </div>
+          <div class="feature feature-highlight">
+            <div class="feature-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M10 14 V18" />
+                <path d="M5 14 H15" />
+                <path d="M7.5 3 H12.5 L11.7 9 L14 12.5 H6 L8.3 9 Z" />
+              </svg>
+            </div>
+            <h3>Optional local pinning</h3>
+            <p>
+              Turn on auto-pinning for IPFS contenthash sites. dapp3 asks Kubo
+              to recursively pin resolved CIDs, then shows pin status and DAG
+              size in the banner.
+            </p>
+            <span class="feature-meta">Keep sites available locally</span>
+          </div>
           <div class="feature">
             <div class="feature-icon" aria-hidden="true">
               <svg
@@ -485,6 +508,10 @@
             <div class="status-pill">
               <span class="dot ok"></span>
               ERC-4804 fallback
+            </div>
+            <div class="status-pill">
+              <span class="dot ok"></span>
+              IPFS auto-pinning
             </div>
           </div>
 

@@ -123,10 +123,10 @@ async function probeKuboApiAndRender() {
   wrap.id = "api-warning";
   wrap.className = "api-warning";
   wrap.innerHTML = `
-    <summary class="api-warning-title">Optional: enable <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a> dapps</summary>
+    <summary class="api-warning-title">Optional: enable <a href="https://eip.tools/eip/4804" target="_blank" rel="noopener">ERC-4804</a> dapps and IPFS auto-pinning</summary>
     <div class="api-warning-content">
       <p class="api-warning-body">
-        Run once, restart Kubo. Standard <code>.eth</code>/IPFS sites already work without this.
+        Run once, restart Kubo. Standard <code>.eth</code>/IPFS sites already work without this; ERC-4804 dapps and optional IPFS auto-pinning need it.
       </p>
       <div class="cmd-block">
         <pre data-cmd="cmd"></pre>

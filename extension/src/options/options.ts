@@ -1,4 +1,5 @@
 import { getSettings, setSettings, onSettingsChanged } from "@/lib/settings";
+import { probeKuboApi } from "@/lib/kubo";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import {
   DEFAULT_WEB3_ENTRY_BUDGET,
@@ -48,6 +49,12 @@ const interceptToggle = document.getElementById(
 const interceptW3EthToggle = document.getElementById(
   "intercept-w3eth",
 ) as HTMLInputElement;
+const autoPinIpfsToggle = document.getElementById(
+  "auto-pin-ipfs",
+) as HTMLInputElement;
+const autoPinIpfsStatus = document.getElementById(
+  "auto-pin-ipfs-status",
+) as HTMLElement;
 
 const verifierForm = document.getElementById(
   "verifier-form",
@@ -407,6 +414,10 @@ function syncCheckpointUI(stored: string | undefined) {
   checkpointStatus.className = "hint";
 }
 
+function kuboApiSetupCommand(): string {
+  return `ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["chrome-extension://${chrome.runtime.id}"]' && ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["POST"]'`;
+}
+
 function normalizeCheckpoint(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -542,6 +553,7 @@ onSettingsChanged((s) => {
   }
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
+  autoPinIpfsToggle.checked = s.autoPinIpfsContent;
   if (
     document.activeElement !== web3SizeCapInput &&
     document.activeElement !== web3EntryBudgetInput
@@ -556,6 +568,36 @@ interceptToggle.addEventListener("change", async () => {
 
 interceptW3EthToggle.addEventListener("change", async () => {
   await setSettings({ interceptW3Eth: interceptW3EthToggle.checked });
+});
+
+autoPinIpfsToggle.addEventListener("change", async () => {
+  autoPinIpfsToggle.disabled = true;
+  autoPinIpfsStatus.className = "hint";
+
+  if (!autoPinIpfsToggle.checked) {
+    await setSettings({ autoPinIpfsContent: false });
+    autoPinIpfsStatus.textContent = "Disabled. IPFS contenthashes will only be gateway-cached by Kubo.";
+    autoPinIpfsToggle.disabled = false;
+    return;
+  }
+
+  autoPinIpfsStatus.textContent = "Checking Kubo API access…";
+  const probe = await probeKuboApi();
+  if (!probe.ok) {
+    autoPinIpfsToggle.checked = false;
+    autoPinIpfsStatus.className = "hint bad";
+    autoPinIpfsStatus.textContent =
+      probe.kind.kind === "cors"
+        ? `Kubo is rejecting this extension. Run once, restart Kubo, then enable again: ${kuboApiSetupCommand()}`
+        : `Kubo API is not reachable at 127.0.0.1:5001: ${probe.kind.kind === "unreachable" ? probe.kind.cause : probe.kind.body}`;
+    autoPinIpfsToggle.disabled = false;
+    return;
+  }
+
+  await setSettings({ autoPinIpfsContent: true });
+  autoPinIpfsStatus.textContent =
+    "Enabled. New IPFS contenthash CIDs will be pinned in the background.";
+  autoPinIpfsToggle.disabled = false;
 });
 
 // ---------- Web3:// dapps section ----------
@@ -714,6 +756,7 @@ function renderWeb3List(entries: Web3CacheEntry[]) {
   syncCheckpointUI(s.checkpoint);
   interceptToggle.checked = s.interceptEthLimo;
   interceptW3EthToggle.checked = s.interceptW3Eth;
+  autoPinIpfsToggle.checked = s.autoPinIpfsContent;
   syncWeb3Budgets(s);
   loadWeb3List();
   pollHelios();

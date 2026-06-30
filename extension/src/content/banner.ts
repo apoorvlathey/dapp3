@@ -1,4 +1,9 @@
-import type { ContentUpdatedMessage, TabContext } from "@/lib/messaging";
+import type {
+  ContentUpdatedMessage,
+  IpfsPinStatus,
+  IpfsPinStatusUpdatedMessage,
+  TabContext,
+} from "@/lib/messaging";
 import type { HeliosStatus } from "@/lib/helios-bridge";
 import { setupAddressField, type AddressField } from "@/lib/url-field";
 import {
@@ -99,6 +104,11 @@ type Refs = {
   stateText: HTMLSpanElement;
   urlForm: HTMLElement;
   urlInput: HTMLElement;
+  pinWrap: HTMLSpanElement;
+  pinBadge: HTMLButtonElement;
+  pinPopoverTitle: HTMLSpanElement;
+  pinPopoverDetail: HTMLSpanElement;
+  pinPopoverSize: HTMLSpanElement;
   starBtn: HTMLButtonElement;
   bookmarksBtn: HTMLButtonElement;
   ensHistoryLink: HTMLAnchorElement;
@@ -237,6 +247,97 @@ function buildBanner(): Refs {
     .identity .urlfield *::selection {
       background: rgba(16, 185, 129, 0.3); color: #a7f3d0;
     }
+    .pin-wrap {
+      display: none;
+      position: relative;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .pin-wrap.show { display: inline-flex; }
+    .pin-badge {
+      all: unset;
+      display: inline-flex;
+      align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 4px;
+      color: #6ee7b7;
+      cursor: help;
+      transition: background-color 150ms, color 150ms, outline-color 150ms;
+    }
+    .pin-badge:hover,
+    .pin-badge:focus-visible { background: #27272a; color: #a7f3d0; }
+    .pin-badge:focus-visible {
+      outline: 1px solid #3f3f46;
+      outline-offset: 1px;
+    }
+    .pin-badge.pending {
+      color: #fbbf24;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    .pin-badge.indirect { color: #a1a1aa; }
+    .pin-badge.error { color: #fb7185; }
+    .pin-badge svg { width: 14px; height: 14px; display: block; }
+    .pin-popover {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 50%;
+      transform: translate(-50%, -4px);
+      width: max-content;
+      min-width: 220px;
+      max-width: 280px;
+      padding: 9px 10px;
+      border-radius: 6px;
+      border: 1px solid #27272a;
+      background: #18181b;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.36);
+      color: #e4e4e7;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      z-index: 4;
+      transition:
+        opacity 120ms ease,
+        transform 120ms ease,
+        visibility 120ms ease;
+    }
+    .pin-popover::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: -5px;
+      width: 8px;
+      height: 8px;
+      transform: translateX(-50%) rotate(45deg);
+      background: #18181b;
+      border-left: 1px solid #27272a;
+      border-top: 1px solid #27272a;
+    }
+    .pin-wrap:hover .pin-popover,
+    .pin-wrap:focus-within .pin-popover {
+      opacity: 1;
+      visibility: visible;
+      transform: translate(-50%, 0);
+    }
+    .pin-popover-title,
+    .pin-popover-detail,
+    .pin-popover-size {
+      display: block;
+      white-space: normal;
+    }
+    .pin-popover-title {
+      color: #f4f4f5;
+      font: 600 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    .pin-popover-detail {
+      margin-top: 4px;
+      color: #a1a1aa;
+      font: 500 11px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    .pin-popover-size {
+      margin-top: 6px;
+      color: #6ee7b7;
+      font: 600 11px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
     .star-btn {
       all: unset;
       display: inline-flex; align-items: center; justify-content: center;
@@ -374,6 +475,20 @@ function buildBanner(): Refs {
         <path d="M10.5 10.5 L14 14"/>
       </svg>
       <div class="urlfield"></div>
+      <span class="pin-wrap">
+        <button class="pin-badge" type="button" aria-label="IPFS pin status" aria-describedby="dapp3-pin-popover">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 17v5"/>
+            <path d="M5 17h14"/>
+            <path d="M9 3h6l-1 7 3 4H7l3-4z"/>
+          </svg>
+        </button>
+        <span class="pin-popover" id="dapp3-pin-popover" role="tooltip">
+          <span class="pin-popover-title"></span>
+          <span class="pin-popover-detail"></span>
+          <span class="pin-popover-size"></span>
+        </span>
+      </span>
       <button class="star-btn" type="button" aria-label="favorite" title="Favorite this site">
         <svg class="star-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
@@ -449,6 +564,11 @@ function buildBanner(): Refs {
     stateText: q<HTMLSpanElement>(".statelabel"),
     urlForm: q<HTMLElement>(".identity"),
     urlInput: q<HTMLElement>(".urlfield"),
+    pinWrap: q<HTMLSpanElement>(".pin-wrap"),
+    pinBadge: q<HTMLButtonElement>(".pin-badge"),
+    pinPopoverTitle: q<HTMLSpanElement>(".pin-popover-title"),
+    pinPopoverDetail: q<HTMLSpanElement>(".pin-popover-detail"),
+    pinPopoverSize: q<HTMLSpanElement>(".pin-popover-size"),
     starBtn: q<HTMLButtonElement>(".star-btn"),
     bookmarksBtn: q<HTMLButtonElement>(".bookmarks-btn"),
     ensHistoryLink: q<HTMLAnchorElement>(".ens-history-link"),
@@ -873,6 +993,90 @@ function wireAddressBar(
   return field;
 }
 
+function formatPinnedSize(bytes: number | undefined): string {
+  if (bytes == null) return "size unavailable";
+  const abs = Math.abs(bytes);
+  const units = [
+    { label: "GB", value: 1_000_000_000 },
+    { label: "MB", value: 1_000_000 },
+    { label: "KB", value: 1_000 },
+  ];
+  const unit = units.find((u) => abs >= u.value) ?? {
+    label: "bytes",
+    value: 1,
+  };
+  const value = bytes / unit.value;
+  const maximumFractionDigits =
+    unit.label === "bytes" ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toLocaleString(undefined, {
+    maximumFractionDigits,
+  })} ${unit.label}`;
+}
+
+function renderPinStatus(refs: Refs, status: IpfsPinStatus | null) {
+  refs.pinWrap.classList.remove("show");
+  refs.pinBadge.classList.remove("pending", "indirect", "error");
+  refs.pinBadge.setAttribute("aria-label", "IPFS pin status");
+  refs.pinPopoverTitle.textContent = "";
+  refs.pinPopoverDetail.textContent = "";
+  refs.pinPopoverSize.textContent = "";
+
+  if (!status || status.state === "unpinned" || status.state === "error") {
+    return;
+  }
+
+  refs.pinWrap.classList.add("show");
+  if (status.state !== "pinned") refs.pinBadge.classList.add(status.state);
+
+  const size = formatPinnedSize(status.sizeBytes);
+  let title: string;
+  let detail: string;
+  if (status.state === "pending") {
+    title = "Auto-pin in progress";
+    detail = "Kubo is recursively pinning this IPFS CID.";
+  } else if (status.state === "indirect") {
+    title = "Available through another pin";
+    detail = "This CID is covered by another local recursive pin.";
+  } else if (status.autoPinned) {
+    title = "Auto-pinned by dapp3";
+    detail = "Pinned to your local Kubo node.";
+  } else {
+    title = "Pinned locally in Kubo";
+    detail = "This CID is pinned in your local Kubo node.";
+  }
+
+  refs.pinPopoverTitle.textContent = title;
+  refs.pinPopoverDetail.textContent = detail;
+  refs.pinPopoverSize.textContent =
+    status.state === "pending" ? "" : `DAG size: ${size}`;
+  refs.pinBadge.setAttribute(
+    "aria-label",
+    `${title}. ${detail}${status.state === "pending" ? "" : ` DAG size: ${size}.`}`,
+  );
+}
+
+async function refreshPinStatus(
+  refs: Refs,
+  ctx: TabContext,
+): Promise<IpfsPinStatus | null> {
+  if (ctx.kind !== "ipfs") {
+    renderPinStatus(refs, null);
+    return null;
+  }
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: "get-ipfs-pin-status",
+      cid: ctx.value,
+    });
+    const status = resp?.ok ? (resp.status as IpfsPinStatus) : null;
+    renderPinStatus(refs, status);
+    return status;
+  } catch {
+    renderPinStatus(refs, null);
+    return null;
+  }
+}
+
 async function mount(ctx: TabContext) {
   if (document.getElementById(BANNER_ID)) return;
 
@@ -919,6 +1123,17 @@ async function mount(ctx: TabContext) {
   wireSpaNav(render);
   wireMenu(refs, ctx);
   wireStar(refs, ctx);
+  renderPinStatus(refs, null);
+  if (ctx.kind === "ipfs") {
+    (async () => {
+      let status = await refreshPinStatus(refs, ctx);
+      for (let i = 0; status?.state === "pending" && i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        if (!document.getElementById(BANNER_ID)) return;
+        status = await refreshPinStatus(refs, ctx);
+      }
+    })();
+  }
 
   // "Hide for this session" escape hatch: if the nav-shift heuristic misjudges
   // something on a given site, the user can yank the banner entirely until
@@ -952,7 +1167,13 @@ async function mount(ctx: TabContext) {
   });
   refs.updateDismissBtn.addEventListener("click", hideUpdateStrip);
 
-  chrome.runtime.onMessage.addListener((msg: ContentUpdatedMessage) => {
+  chrome.runtime.onMessage.addListener(
+    (msg: ContentUpdatedMessage | IpfsPinStatusUpdatedMessage) => {
+    if (msg?.type === "ipfs-pin-status-updated") {
+      if (msg.status.cid !== ctx.value) return;
+      renderPinStatus(refs, msg.status);
+      return;
+    }
     if (msg?.type !== "content-updated") return;
     if (msg.ensName.toLowerCase() !== ctx.ensName.toLowerCase()) return;
     // Preserve the user's current in-page path/search/hash on the reload, not

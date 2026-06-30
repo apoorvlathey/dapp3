@@ -31,6 +31,10 @@ export type Settings = {
   // ERC-4804 contract. Keeps Helios load light on heavy users by skipping
   // the eth_call when a recent revalidation has already happened. See PRD §5.3.
   web3RevalidateMinIntervalMs?: number;
+  // Optional: after a normal ENS IPFS contenthash resolve, ask the local Kubo
+  // API to recursively pin the resolved CID. Off by default because Kubo's API
+  // requires a one-time CORS allowlist entry for this extension origin.
+  autoPinIpfsContent: boolean;
 };
 
 const KEY = "settings";
@@ -39,6 +43,7 @@ const DEFAULT: Settings = {
   onboardingComplete: false,
   interceptEthLimo: true,
   interceptW3Eth: true,
+  autoPinIpfsContent: false,
 };
 
 export async function getSettings(): Promise<Settings> {

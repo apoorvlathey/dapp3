@@ -59,3 +59,19 @@ export type ContentUpdatedMessage = {
   value: string;
   gatewayUrl: string;
 };
+
+export type IpfsPinStatus = {
+  cid: string;
+  state: "unpinned" | "pending" | "pinned" | "indirect" | "error";
+  autoPinned: boolean;
+  pinType?: "recursive" | "direct" | "indirect" | "internal";
+  sizeBytes?: number;
+  pinnedAt?: number;
+  ensName?: string;
+  error?: string;
+};
+
+export type IpfsPinStatusUpdatedMessage = {
+  type: "ipfs-pin-status-updated";
+  status: IpfsPinStatus;
+};

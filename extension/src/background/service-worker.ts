@@ -9,10 +9,16 @@ import { getHeliosStatus, shutdownHelios } from "@/lib/helios-client";
 import { getSettings, onSettingsChanged } from "@/lib/settings";
 import type {
   ContentUpdatedMessage,
+  IpfsPinStatus,
+  IpfsPinStatusUpdatedMessage,
   ResolveKind,
   TabContext,
 } from "@/lib/messaging";
 import { findCachedByGatewayLabel, getCached, setCached } from "@/lib/cache";
+import {
+  getAutoPinRecord,
+  rememberAutoPinRecord,
+} from "@/lib/ipfs-auto-pins";
 import {
   bumpWeb3LastAccess,
   getWeb3CacheEntry,
@@ -20,7 +26,13 @@ import {
   removeWeb3CacheEntry,
   mfsPathFor,
 } from "@/lib/web3url-cache";
-import { removeMfsPath, unpinFromKubo } from "@/lib/kubo";
+import {
+  getKuboPinType,
+  pinCidToKubo,
+  removeMfsPath,
+  statKuboDagSize,
+  unpinFromKubo,
+} from "@/lib/kubo";
 
 const ETH_HOST_RE = /^(?:[a-z0-9-]+\.)+eth\.?$/i;
 const W3ETH_HOST_RE = /^0x[a-f0-9]{40}\.w3eth\.io\.?$/i;
@@ -277,6 +289,135 @@ async function removeEthLimoBypassForTab(tabId: number) {
 // Combined with the session DNR ALLOW rule below, the SW restart edge case
 // only loses the JS layer; the DNR rule keeps holding through the restart.
 const w3EthBypassTabs = new Set<number>();
+const autoPinInflight = new Set<string>();
+
+function describeError(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+async function getIpfsPinStatus(cid: string): Promise<IpfsPinStatus> {
+  const record = await getAutoPinRecord(cid).catch(() => null);
+  if (autoPinInflight.has(cid)) {
+    return {
+      cid,
+      state: "pending",
+      autoPinned: !!record,
+      sizeBytes: record?.sizeBytes,
+      pinnedAt: record?.pinnedAt,
+      ensName: record?.ensName,
+    };
+  }
+
+  let pinType;
+  try {
+    pinType = await getKuboPinType(cid);
+  } catch (e) {
+    return {
+      cid,
+      state: "error",
+      autoPinned: !!record,
+      error: describeError(e),
+      sizeBytes: record?.sizeBytes,
+      pinnedAt: record?.pinnedAt,
+      ensName: record?.ensName,
+    };
+  }
+
+  if (!pinType) {
+    return {
+      cid,
+      state: "unpinned",
+      autoPinned: !!record,
+      pinnedAt: record?.pinnedAt,
+      ensName: record?.ensName,
+    };
+  }
+
+  let sizeBytes = record?.sizeBytes;
+  if (sizeBytes == null) {
+    sizeBytes = (await statKuboDagSize(cid).catch(() => null)) ?? undefined;
+    if (record && sizeBytes != null) {
+      await rememberAutoPinRecord({
+        cid,
+        ensName: record.ensName,
+        sizeBytes,
+        pinnedAt: record.pinnedAt,
+      }).catch(() => undefined);
+    }
+  }
+
+  return {
+    cid,
+    state: pinType === "indirect" ? "indirect" : "pinned",
+    autoPinned: !!record,
+    pinType,
+    sizeBytes,
+    pinnedAt: record?.pinnedAt,
+    ensName: record?.ensName,
+  };
+}
+
+function notifyIpfsPinStatus(tabId: number | undefined, status: IpfsPinStatus) {
+  if (tabId == null) return;
+  const msg: IpfsPinStatusUpdatedMessage = {
+    type: "ipfs-pin-status-updated",
+    status,
+  };
+  chrome.tabs.sendMessage(tabId, msg).catch(() => {
+    // The target page may still be loading. The content script also asks for
+    // status on mount, so this push is only a fast path.
+  });
+}
+
+// Best-effort only: optional IPFS pinning must never delay or fail navigation.
+async function autoPinIpfsIfEnabled(
+  cid: string,
+  label: string,
+  tabId?: number,
+) {
+  const s = await getSettings().catch(() => null);
+  if (!s?.autoPinIpfsContent) return;
+  if (autoPinInflight.has(cid)) return;
+  autoPinInflight.add(cid);
+  notifyIpfsPinStatus(tabId, {
+    cid,
+    state: "pending",
+    autoPinned: false,
+    ensName: label,
+  });
+  try {
+    await pinCidToKubo(cid);
+    const sizeBytes = (await statKuboDagSize(cid).catch(() => null)) ?? undefined;
+    const pinnedAt = Date.now();
+    await rememberAutoPinRecord({
+      cid,
+      ensName: label,
+      sizeBytes,
+      pinnedAt,
+    }).catch(() => undefined);
+    console.log(`[dapp3] auto-pinned IPFS CID for ${label}: ${cid}`);
+    notifyIpfsPinStatus(tabId, {
+      cid,
+      state: "pinned",
+      autoPinned: true,
+      pinType: "recursive",
+      sizeBytes,
+      pinnedAt,
+      ensName: label,
+    });
+  } catch (e) {
+    console.warn(`[dapp3] IPFS auto-pin failed for ${label}`, e);
+    notifyIpfsPinStatus(tabId, {
+      cid,
+      state: "error",
+      autoPinned: false,
+      ensName: label,
+      error: describeError(e),
+    });
+  } finally {
+    autoPinInflight.delete(cid);
+  }
+}
 
 async function setW3EthBypassDnrTabs(tabIds: number[]) {
   if (tabIds.length === 0) {
@@ -386,6 +527,11 @@ async function resolveAndRedirect(
     contractAddress: result.contractAddress,
   };
   await chrome.storage.session.set({ [`tab:${tabId}`]: ctx });
+  if (result.kind === "ipfs" && !result.trustedDirectly) {
+    autoPinIpfsIfEnabled(result.value, result.ensName, tabId).catch((e) =>
+      console.warn("[dapp3] IPFS auto-pin threw", e),
+    );
+  }
   // Only cache Helios-verified resolutions. Bypass-trusted results carry a
   // weaker trust contract. Web3 entries are also cached here so the next
   // visit redirects synchronously from the ENS name to the same CID; the
@@ -466,6 +612,12 @@ async function refreshFromCache(
     resolvedAt: Date.now(),
     contractAddress: result.contractAddress,
   }).catch(() => undefined);
+
+  if (result.kind === "ipfs") {
+    autoPinIpfsIfEnabled(result.value, result.ensName, tabId).catch((e) =>
+      console.warn("[dapp3] IPFS auto-pin threw", e),
+    );
+  }
 
   if (result.value === cachedEntry.value) {
     // Same content. Done — just leave the timestamp bump above.
@@ -629,6 +781,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === "get-ipfs-pin-status" && typeof msg.cid === "string") {
+    getIpfsPinStatus(msg.cid).then(
+      (status) => sendResponse({ ok: true, status }),
+      (e) => sendResponse({ ok: false, error: describeError(e) }),
+    );
+    return true;
+  }
+
   if (msg?.type === "interstitial-cache-check") {
     const tabId = sender.tab?.id ?? msg.tabId;
     const name = String(msg.name ?? "").toLowerCase();
@@ -694,6 +854,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         fromCache: true,
       };
       await chrome.storage.session.set({ [`tab:${tabId}`]: ctx });
+      if (hit.kind === "ipfs") {
+        autoPinIpfsIfEnabled(hit.value, hit.ensName, tabId).catch((e) =>
+          console.warn("[dapp3] IPFS auto-pin threw", e),
+        );
+      }
       sendResponse({ cached: true, gatewayUrl });
       // Kick off the background re-resolve. Helios was pre-warmed in
       // onBeforeNavigate; if it isn't synced yet the resolve will fail and

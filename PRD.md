@@ -23,7 +23,7 @@ The public `.eth.limo` DNS was hijacked, breaking the trust model of a centraliz
 ## 4. User Flow
 
 1. **One-time install & onboarding.** User installs the extension. Onboarding checks:
-   - Is Kubo reachable at `http://127.0.0.1:8080` and its RPC at `http://127.0.0.1:5001`? If not, link to IPFS Desktop install instructions and block further setup until detected.
+   - Is Kubo's subdomain gateway reachable at `http://127.0.0.1:8080`? If not, link to IPFS Desktop install instructions and block further setup until detected. The Kubo RPC API at `http://127.0.0.1:5001` is probed only for optional write features.
    - Collect one or more Ethereum execution RPC URLs from the user. The extension explains that Helios will verify state reads against these — they don't need to be trusted.
    - Fetch a fresh weak-subjectivity checkpoint and bootstrap Helios. Show a sync progress UI.
 
@@ -165,7 +165,7 @@ When a `.eth` navigation fires and Helios isn't yet synced, the tab is redirecte
 - Resolver (`src/lib/resolver.ts`) is a stub that always returns a fixed CIDv1 for any `*.eth`. M2 will swap this for viem + `@ensdomains/content-hash` against a user-supplied RPC.
 - Gateway URL builder (`src/lib/gateway.ts`) handles CIDv1 base32 + IPNS-label DNS encoding (`.` → `-`, `-` → `--`).
 - Content script (`src/content/banner.ts`) renders a closed-shadow-DOM banner at `document_start`, offsets `body` margin-top, and re-renders on `pushState` / `replaceState` / `popstate` / `hashchange`. Hydrates via `chrome.runtime.sendMessage({type:"get-tab-ctx"})`.
-- Popup (`src/popup/`) shows Kubo reachability by probing `POST http://127.0.0.1:5001/api/v0/version`. Helios status is still a placeholder.
+- Popup (`src/popup/`) shows Kubo gateway reachability by probing the empty-UnixFS CID through `*.ipfs.localhost:8080`. Helios status is still a placeholder.
 - Options page (`src/options/`) has an RPC add/remove list persisted via a typed settings module (`src/lib/settings.ts`, `chrome.storage.local`). No health tracking yet — that's M4.
 - `web_accessible_resources` for the offscreen doc + interstitial deferred to the milestone that introduces those files (M3), to keep the build unblocked.
 
@@ -219,7 +219,7 @@ When a `.eth` navigation fires and Helios isn't yet synced, the tab is redirecte
 ### 2026-04-19 — M5 landed
 
 - Four-step onboarding wizard at `src/onboarding/onboarding.html`:
-  1. **IPFS** — probes `POST http://127.0.0.1:5001/api/v0/version`. "Next" is gated on a successful probe; shows install link + troubleshooting tips on failure.
+  1. **IPFS** — probes the `*.ipfs.localhost:8080` subdomain gateway. "Next" is gated on a successful probe; shows install link + troubleshooting tips on failure. The Kubo API on 5001 is probed separately for optional write features.
   2. **RPC** — user enters a mainnet execution RPC URL. Submit fires `chrome.permissions.request` for both the RPC origin and the default consensus RPC origin in one prompt (user gesture path). On success, saves the URL as the primary (prepends to the existing list, so the wizard can be re-run without losing other RPCs).
   3. **Advanced (optional)** — consensus RPC override + checkpoint hash (regex-validated as 0x-prefixed 32-byte hex). Changing the consensus RPC triggers an additional permission request.
   4. **Sync** — polls Helios status, shows `booting → syncing → synced`. "Finish setup" button enables once synced; writes `onboardingComplete: true` and redirects to the options page.
@@ -233,7 +233,7 @@ When a `.eth` navigation fires and Helios isn't yet synced, the tab is redirecte
 
 During first unpacked-load test, two real issues surfaced that only show up in a running browser:
 
-1. **Kubo RPC probe got a 403.** The onboarding was probing `POST http://127.0.0.1:5001/api/v0/version`. Kubo rejects browser-originated API requests whose `Origin` isn't on its allowlist — a CSRF / DNS-rebinding defense. The extension never actually *uses* port 5001; the content gateway on 8080 is what matters. Switched the probe to `fetch('http://bafkqaaa.ipfs.localhost:8080/', { mode: 'no-cors' })` — the empty-UnixFS CID against the subdomain gateway. A resolved promise proves the gateway is reachable AND subdomains are enabled (the two things we actually need).
+1. **Kubo RPC probe got a 403.** The onboarding was probing `POST http://127.0.0.1:5001/api/v0/version`. Kubo rejects browser-originated API requests whose `Origin` isn't on its allowlist — a CSRF / DNS-rebinding defense. The normal IPFS contenthash path does not need port 5001; the content gateway on 8080 is what matters. Switched the required probe to `fetch('http://bafkqaaa.ipfs.localhost:8080/', { mode: 'no-cors' })` — the empty-UnixFS CID against the subdomain gateway. A resolved promise proves the gateway is reachable AND subdomains are enabled (the two things we actually need). Features that do write-like Kubo API calls — ERC-4804 pinning and optional IPFS auto-pinning — keep a separate optional `/api/v0/version` probe and setup prompt.
 
 2. **Helios bootstrap 503 was a stale default checkpoint, not a network problem.** Helios has a baked-in mainnet checkpoint `0x65a7ed542f…` that no public consensus RPC still serves light-client bootstrap data for. `lightclientdata.org` returns 503 for it (likely overloaded from users hitting that one old checkpoint); other beacon APIs that support `/eth/v1/beacon/light_client/*` at all return 404. Fix: before `createHeliosProvider`, the offscreen doc now calls `GET <consensusRpc>/eth/v1/beacon/headers/finalized` and passes the returned block root through as the `checkpoint` config field. Auto-fetched per cold start; user can still override in advanced settings.
 
